@@ -235,58 +235,61 @@
     scanReadouts();
   }
 
-  // ---- 5b. client-side Plotly.restyle for the map -----------------------
-  // The server pushes only the day's z / locations / customdata as a custom
-  // message — we apply it with Plotly.restyle so the mapbox layer, geojson,
-  // and colorbar all stay mounted between frames. The two choropleth traces
-  // (index 0 = with-value, index 1 = without-value) are always present.
-  function findPlotlyEl() {
-    var container = document.getElementById("map_plot");
-    if (!container) return null;
-    if (container.classList && container.classList.contains("js-plotly-plot")) {
-      return container;
-    }
-    return container.querySelector(".js-plotly-plot");
-  }
+  // ---- 5b. map renderer — full Plotly.newPlot on every figure update -----
+  // The server ships the entire Plotly figure JSON each time it changes
+  // (event / pollutant / mode / region / day). We call Plotly.newPlot on the
+  // static #map_plot div, which guarantees the choropleth fill repaints for
+  // the current day — no diffing layer to fail.
+  var pendingMapMsg = null;
 
-  function applyMapRestyle(msg) {
-    if (!msg || !window.Plotly) return false;
-    var el = findPlotlyEl();
+  function applyMapFigure(msg) {
+    if (!msg) return false;
+    if (!window.Plotly) return false;
+    var el = document.getElementById("map_plot");
     if (!el) return false;
-    var wv = msg.with_value || { locations: [], z: [], customdata: [] };
-    var nv = msg.without_value || { locations: [], customdata: [] };
     try {
-      window.Plotly.restyle(el, {
-        locations: [wv.locations || []],
-        z: [wv.z || []],
-        customdata: [wv.customdata || []],
-      }, [0]);
-      window.Plotly.restyle(el, {
-        locations: [nv.locations || []],
-        z: [(nv.locations || []).map(function () { return 0; })],
-        customdata: [nv.customdata || []],
-      }, [1]);
+      window.Plotly.newPlot(
+        el,
+        msg.data || [],
+        msg.layout || {},
+        { responsive: true, displayModeBar: false }
+      );
       return true;
     } catch (err) {
       return false;
     }
   }
 
+  function drainPendingMap() {
+    if (!pendingMapMsg) return true;
+    if (applyMapFigure(pendingMapMsg)) {
+      pendingMapMsg = null;
+      return true;
+    }
+    return false;
+  }
+
   function bindMapRestyle() {
     if (!window.Shiny || !Shiny.addCustomMessageHandler) {
-      // Shiny not ready yet — retry shortly.
       setTimeout(bindMapRestyle, 200);
       return;
     }
-    Shiny.addCustomMessageHandler("map_restyle", function (msg) {
-      // Plotly may not be mounted yet on first paint; retry a few times.
-      if (applyMapRestyle(msg)) return;
+    Shiny.addCustomMessageHandler("map_figure", function (msg) {
+      // Stash the latest payload — the renderer always uses the freshest one.
+      pendingMapMsg = msg;
+      if (applyMapFigure(msg)) {
+        pendingMapMsg = null;
+        return;
+      }
+      // Plotly / #map_plot may not be mounted yet; retry briefly.
       var attempts = 0;
       var t = setInterval(function () {
         attempts += 1;
-        if (applyMapRestyle(msg) || attempts > 20) clearInterval(t);
+        if (drainPendingMap() || attempts > 40) clearInterval(t);
       }, 120);
     });
+    // Legacy no-op for any stale map_restyle messages from older sessions.
+    Shiny.addCustomMessageHandler("map_restyle", function () { /* no-op */ });
   }
 
   // ---- 5c. client-side Plotly.relayout for the trend chart --------------
@@ -321,7 +324,7 @@
         yref: "paper",
         y0: 0,
         y1: 1,
-        line: { color: "#63e0ff", dash: "dot", width: 1.6 },
+        line: { color: "#0e9bd1", dash: "dot", width: 1.6 },
       });
     }
     try {

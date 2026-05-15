@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.io as pio
 from shiny import App, reactive, render, ui
 from shinywidgets import output_widget, render_widget
 
@@ -107,7 +108,7 @@ NO2_COLORSCALE = [
 ANOMALY_COLORSCALE = [
     [0.00, "#3ddcc7"],   # much cleaner than usual (cyan)
     [0.35, "#2e8aa6"],   # mildly cleaner
-    [0.50, "#2c3d59"],   # neutral (matches dark UI)
+    [0.50, "#e3e8f2"],   # neutral (matches light UI)
     [0.65, "#ee7a3a"],   # mildly elevated
     [1.00, "#dc4a4a"],   # much elevated than usual (red)
 ]
@@ -324,7 +325,7 @@ def _empty_trend_figure() -> go.Figure:
             text="Ni razpoložljivih podatkov.",
             x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False,
             font=dict(family="DM Sans, system-ui, sans-serif",
-                      color="#7c8ba6", size=14),
+                      color="#6a7894", size=14),
         )],
         meta={"base_shape_count": 0},
     )
@@ -395,16 +396,16 @@ def _build_trend_figure_base(
     fig.add_trace(go.Scatter(
         x=sub["date"], y=sub["band_low"],
         mode="lines", line=dict(width=0),
-        fill="tonexty", fillcolor="rgba(99,224,255,0.10)",
+        fill="tonexty", fillcolor="rgba(14,155,209,0.12)",
         name="min–max", hoverinfo="skip", showlegend=False,
     ))
     fig.add_trace(go.Scatter(
         x=sub["date"], y=sub["plot_value"],
         mode="lines+markers",
-        line=dict(color="#63e0ff", width=2.4,
+        line=dict(color="#0e9bd1", width=2.4,
                   shape="spline", smoothing=0.5),
-        marker=dict(size=5, color="#63e0ff",
-                    line=dict(color="#0a1120", width=1)),
+        marker=dict(size=5, color="#0e9bd1",
+                    line=dict(color="#ffffff", width=1)),
         name="povprečje",
         hovertemplate=(
             "<b>%{x}</b><br>"
@@ -419,18 +420,18 @@ def _build_trend_figure_base(
             if es == ee:
                 fig.add_vline(
                     x=es,
-                    line=dict(color="#ff7a5a", width=2),
+                    line=dict(color="#d65336", width=2),
                 )
                 fig.add_annotation(
                     x=es, y=1, yref="paper", showarrow=False,
                     text="DAN DOGODKA", yanchor="bottom",
                     font=dict(family="JetBrains Mono, monospace",
-                              color="#ff7a5a", size=10),
+                              color="#d65336", size=10),
                 )
             else:
                 fig.add_vrect(
                     x0=es, x1=ee,
-                    fillcolor="rgba(255,122,90,0.14)",
+                    fillcolor="rgba(217,102,55,0.14)",
                     line=dict(width=0),
                 )
                 fig.add_annotation(
@@ -438,7 +439,7 @@ def _build_trend_figure_base(
                     text="OBDOBJE DOGODKA", yanchor="bottom",
                     xanchor="left",
                     font=dict(family="JetBrains Mono, monospace",
-                              color="#ff7a5a", size=10),
+                              color="#d65336", size=10),
                 )
 
     # Count baseline shapes so the JS day-marker handler knows where to
@@ -451,38 +452,38 @@ def _build_trend_figure_base(
         title=dict(
             text=title.upper(),
             font=dict(family="JetBrains Mono, monospace",
-                      color="#9fb0d0", size=11),
+                      color="#46546f", size=11),
             x=0.01, y=0.97,
         ),
         xaxis=dict(
             title=None,
-            gridcolor="rgba(160,200,255,0.06)",
-            zerolinecolor="rgba(160,200,255,0.12)",
-            linecolor="rgba(160,200,255,0.18)",
+            gridcolor="rgba(30,64,120,0.08)",
+            zerolinecolor="rgba(30,64,120,0.14)",
+            linecolor="rgba(30,64,120,0.20)",
             tickfont=dict(family="DM Sans, system-ui, sans-serif",
-                          color="#9fb0d0", size=11),
+                          color="#46546f", size=11),
             showline=True,
             tickangle=-45,
         ),
         yaxis=dict(
             title=dict(text=y_title,
                        font=dict(family="DM Sans, system-ui, sans-serif",
-                                 color="#9fb0d0", size=11)),
-            gridcolor="rgba(160,200,255,0.06)",
-            zerolinecolor="rgba(160,200,255,0.12)",
-            linecolor="rgba(99,224,255,0.30)",
+                                 color="#46546f", size=11)),
+            gridcolor="rgba(30,64,120,0.08)",
+            zerolinecolor="rgba(30,64,120,0.14)",
+            linecolor="rgba(14,155,209,0.30)",
             tickfont=dict(family="JetBrains Mono, monospace",
-                          color="#9fb0d0", size=10),
+                          color="#46546f", size=10),
             showline=True,
         ),
-        font=dict(family="DM Sans, system-ui, sans-serif", color="#c8d4ec"),
+        font=dict(family="DM Sans, system-ui, sans-serif", color="#1f2a3e"),
         height=300,
         margin=dict(l=60, r=20, t=46, b=60),
         hoverlabel=dict(
-            bgcolor="rgba(10,17,32,0.95)",
-            bordercolor="rgba(99,224,255,0.45)",
+            bgcolor="rgba(255,255,255,0.97)",
+            bordercolor="rgba(14,155,209,0.45)",
             font=dict(family="DM Sans, system-ui, sans-serif",
-                      color="#e7eefb", size=12),
+                      color="#0b1424", size=12),
         ),
         showlegend=False,
         meta={"base_shape_count": base_shape_count},
@@ -831,6 +832,9 @@ app_ui = ui.page_fluid(
             ),
         ),
         ui.tags.link(rel="stylesheet", href="styles.css"),
+        # Plotly.js — used by the custom-message map renderer. Loaded from CDN
+        # explicitly so the map doesn't depend on shinywidgets bootstrapping.
+        ui.tags.script(src="https://cdn.plot.ly/plotly-2.32.0.min.js"),
         ui.tags.script(src="app.js", defer="defer"),
     ),
 
@@ -933,8 +937,11 @@ app_ui = ui.page_fluid(
                     ui.span(class_="aw-corner bl"),
                     ui.span(class_="aw-corner br"),
 
-                    # actual Plotly mapbox widget
-                    output_widget("map_plot"),
+                    # Plotly mapbox is rendered directly into this static div
+                    # by the `map_figure` custom message — bypasses shinywidgets
+                    # so every day-tick triggers a fresh Plotly.newPlot and the
+                    # choropleth fill always repaints.
+                    ui.tags.div(id="map_plot"),
 
                     # ---- Overlay TL: mission heading + mode toggle ----
                     ui.div(
@@ -1303,34 +1310,6 @@ def _map_color_range(block: dict, mode: str) -> tuple[float, float]:
     return (vmin, max(vmax, vmin + 1e-6))
 
 
-def _map_restyle_payload(df_disp: pd.DataFrame) -> dict:
-    """Build the JSON payload pushed to the client on each day tick.
-
-    `df_disp` must already have a `value_display` column (set by the
-    `day_df_display` reactive — value_mean in absolute mode, value_anomaly
-    in anomaly mode). Returns {with_value: …, without_value: …} where each
-    block carries the arrays needed by Plotly.restyle.
-    """
-    if df_disp.empty:
-        return {
-            "with_value": {"locations": [], "z": [], "customdata": []},
-            "without_value": {"locations": [], "customdata": []},
-        }
-    wv = df_disp.dropna(subset=["value_display"])
-    nv = df_disp[df_disp["value_display"].isna()]
-    return {
-        "with_value": {
-            "locations": wv["region_code"].astype(str).tolist(),
-            "z": wv["value_display"].astype(float).tolist(),
-            "customdata": _map_value_customdata(wv),
-        },
-        "without_value": {
-            "locations": nv["region_code"].astype(str).tolist(),
-            "customdata": _map_no_data_customdata(nv),
-        },
-    }
-
-
 def server(input, output, session):
 
     # -------- reactive data -------------------------------------------------
@@ -1617,20 +1596,23 @@ def server(input, output, session):
                 if mode == "anomaly"
                 else f"Prikaz: dejanske vrednosti {short}")
 
-    # The map figure is rebuilt only when event / pollutant / display_mode /
-    # region_code change — NOT on every day tick. The current day's values are
-    # pushed via a custom message (`map_restyle`) that the client applies with
-    # Plotly.restyle, so the mapbox tiles and geojson stay mounted between
-    # frames. Without this scoping the entire figure shipped over the
-    # websocket on each tick and the browser tore down the choropleth.
+    # The map figure is rebuilt on every relevant input change INCLUDING the
+    # day slider, so the choropleth fill always matches the current day's
+    # values. mapbox-level `uirevision="map-keep-view"` keeps the user's
+    # pan/zoom across rebuilds. Deps are read manually (not via @reactive.event)
+    # so that no input-suppression rule can ever block a day-tick rebuild.
     @reactive.calc
-    @reactive.event(input.event_id,
-                    input.pollutant,
-                    input.display_mode,
-                    input.region_code)
     def map_figure():
-        with reactive.isolate():
-            df_disp = day_df_display()
+        # Explicit reactive dep reads — Shiny tracks each call.
+        _ = input.event_id()
+        _ = input.day_index()
+        if "pollutant" in input:
+            _ = input.pollutant()
+        if "display_mode" in input:
+            _ = input.display_mode()
+        if "region_code" in input:
+            _ = input.region_code()
+        df_disp = day_df_display()
         block = pollutant_block()
         ev = selected_event()
         mode = input.display_mode() if "display_mode" in input else "absolute"
@@ -1643,7 +1625,7 @@ def server(input, output, session):
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
                 mapbox=dict(
-                    style="carto-darkmatter",
+                    style="carto-positron",
                     center=dict(lat=46.15, lon=14.99),
                     zoom=7.0,
                 ),
@@ -1653,7 +1635,7 @@ def server(input, output, session):
             )
             fig.add_annotation(
                 text="Ni razpoložljivih podatkov.",
-                font=dict(color="#7c8ba6",
+                font=dict(color="#6a7894",
                           family="DM Sans, system-ui, sans-serif", size=14),
                 showarrow=False, x=0.5, y=0.5, xref="paper", yref="paper",
             )
@@ -1689,8 +1671,6 @@ def server(input, output, session):
         )
 
         # ---- Trace 0: choropleth for regions WITH data
-        # Always added (possibly empty) so the trace index stays stable for
-        # client-side Plotly.restyle.
         fig.add_trace(
             go.Choroplethmapbox(
                 geojson=_REGIONS_GEOJSON,
@@ -1700,8 +1680,8 @@ def server(input, output, session):
                 colorscale=cscale,
                 zmin=zmin, zmax=zmax,
                 marker=dict(
-                    line=dict(color="rgba(220,230,255,0.55)", width=0.9),
-                    opacity=0.88,
+                    line=dict(color="rgba(30,40,70,0.85)", width=1.4),
+                    opacity=0.92,
                 ),
                 customdata=_map_value_customdata(wv) if not wv.empty else [],
                 hovertemplate=hovertemplate_val,
@@ -1709,38 +1689,37 @@ def server(input, output, session):
                     title=dict(
                         text=color_title,
                         font=dict(family="Manrope, system-ui, sans-serif",
-                                  color="#c8d4ec", size=11),
+                                  color="#1f2a3e", size=11),
                     ),
                     thickness=10,
                     len=0.55,
                     x=0.985,
                     y=0.42,
-                    bgcolor="rgba(10,17,32,0.78)",
-                    bordercolor="rgba(160,200,255,0.18)",
+                    bgcolor="rgba(255,255,255,0.92)",
+                    bordercolor="rgba(30,64,120,0.18)",
                     borderwidth=1,
                     tickfont=dict(family="JetBrains Mono, monospace",
-                                  color="#c8d4ec", size=10),
-                    outlinecolor="rgba(160,200,255,0.18)",
+                                  color="#1f2a3e", size=10),
+                    outlinecolor="rgba(30,64,120,0.18)",
                     ticks="outside",
                 ),
                 name="",
                 showscale=True,
-                uirevision="map-keep-view",
             )
         )
 
-        # ---- Trace 1: choropleth for regions WITHOUT data (always added)
+        # ---- Trace 1: choropleth for regions WITHOUT data
         fig.add_trace(
             go.Choroplethmapbox(
                 geojson=_REGIONS_GEOJSON,
                 locations=nv["region_code"].astype(str).tolist(),
                 z=[0.0] * len(nv),
                 featureidkey="properties.region_code",
-                colorscale=[[0, "rgba(120,135,165,0.30)"], [1, "rgba(120,135,165,0.30)"]],
+                colorscale=[[0, "rgba(150,160,185,0.55)"], [1, "rgba(150,160,185,0.55)"]],
                 showscale=False,
                 marker=dict(
-                    line=dict(color="rgba(200,215,240,0.35)", width=0.6),
-                    opacity=0.75,
+                    line=dict(color="rgba(60,80,120,0.70)", width=1.0),
+                    opacity=0.80,
                 ),
                 customdata=_map_no_data_customdata(nv) if not nv.empty else [],
                 hovertemplate=(
@@ -1750,7 +1729,6 @@ def server(input, output, session):
                     "<extra></extra>"
                 ),
                 name="",
-                uirevision="map-keep-view",
             )
         )
 
@@ -1761,14 +1739,14 @@ def server(input, output, session):
             fig.add_trace(go.Scattermapbox(
                 lat=[clat], lon=[clon],
                 mode="markers",
-                marker=dict(size=64, color="rgba(99,224,255,0.20)"),
+                marker=dict(size=64, color="rgba(14,155,209,0.22)"),
                 hoverinfo="skip", showlegend=False,
             ))
             # inner ring
             fig.add_trace(go.Scattermapbox(
                 lat=[clat], lon=[clon],
                 mode="markers",
-                marker=dict(size=22, color="rgba(99,224,255,0.95)"),
+                marker=dict(size=22, color="rgba(14,155,209,0.95)"),
                 hoverinfo="skip", showlegend=False,
             ))
 
@@ -1795,11 +1773,11 @@ def server(input, output, session):
             fig.add_trace(go.Scattermapbox(
                 lat=[elat], lon=[elon],
                 mode="markers+text",
-                marker=dict(size=14, color="#ff5a5a"),
+                marker=dict(size=14, color="#c93838"),
                 text=[copy["title"]],
                 textposition="top right",
                 textfont=dict(family="Manrope, system-ui, sans-serif",
-                              color="#ffd6d6", size=12),
+                              color="#8a1f1f", size=12),
                 hovertemplate=(
                     f"<b>{copy['title']}</b><br>{label}<extra></extra>"
                 ),
@@ -1811,49 +1789,37 @@ def server(input, output, session):
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             mapbox=dict(
-                style="carto-darkmatter",
+                style="carto-positron",
                 center=dict(lat=46.15, lon=14.99),
                 zoom=7.0,
+                uirevision="map-keep-view",
             ),
             margin=dict(l=0, r=0, t=0, b=0),
             height=680,
             showlegend=False,
-            font=dict(family="DM Sans, system-ui, sans-serif", color="#c8d4ec"),
+            font=dict(family="DM Sans, system-ui, sans-serif", color="#1f2a3e"),
             hoverlabel=dict(
-                bgcolor="rgba(10,17,32,0.95)",
-                bordercolor="rgba(99,224,255,0.45)",
+                bgcolor="rgba(255,255,255,0.97)",
+                bordercolor="rgba(14,155,209,0.45)",
                 font=dict(family="DM Sans, system-ui, sans-serif",
-                          color="#e7eefb", size=12),
+                          color="#0b1424", size=12),
             ),
-            transition=dict(duration=320, easing="cubic-in-out"),
         )
         return fig
 
-    @output
-    @render_widget
-    def map_plot():
-        # The widget is bound to the slow-changing figure. Day-by-day data
-        # arrives via the `map_restyle` custom message (see effect below).
-        return map_figure()
-
     @reactive.effect
-    async def _push_map_restyle():
-        # Re-fires when the slider day, the event, the pollutant or the mode
-        # changes. The full figure is rebuilt only on the latter three; this
-        # effect ships only the day's z/locations/customdata.
-        _ = input.event_id()
-        if "pollutant" in input:
-            input.pollutant()
-        if "display_mode" in input:
-            input.display_mode()
-        _ = input.day_index()
-
-        df = day_df_display()
-        if df.empty:
-            return
-        payload = _map_restyle_payload(df)
+    async def _push_map_figure():
+        # Ship the full Plotly figure to the client and let JS call
+        # Plotly.newPlot on the static #map_plot div. This avoids shinywidgets
+        # and Plotly.react diffing entirely, so the choropleth fill is always
+        # freshly drawn for the current day.
+        fig = map_figure()
         try:
-            await session.send_custom_message("map_restyle", payload)
+            payload = json.loads(pio.to_json(fig))
+        except Exception:
+            return
+        try:
+            await session.send_custom_message("map_figure", payload)
         except Exception:
             # Session can be torn down mid-animation; swallow gracefully.
             pass
