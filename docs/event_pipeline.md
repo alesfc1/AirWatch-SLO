@@ -70,6 +70,7 @@ requests.
   PostGIS; the Statistical API output (JSON) and a CSV file are the
   only local artifacts we need.
 
+
 ## CRS conventions
 
 | Use case                              | CRS         |

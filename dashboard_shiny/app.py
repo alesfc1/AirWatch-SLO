@@ -20,6 +20,7 @@ Run:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -312,8 +313,193 @@ def _compute_event_window(event: dict, max_day: int) -> dict | None:
     return {"start_pct": start_pct, "width_pct": width_pct, "label": label}
 
 
-def _build_event_pollutant_block(sub: pd.DataFrame) -> dict:
-    """Build a single (event, pollutant) cache entry from a pre-filtered df."""
+def _empty_trend_figure() -> go.Figure:
+    fig = go.Figure()
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=360,
+        margin=dict(l=40, r=20, t=30, b=40),
+        annotations=[dict(
+            text="Ni razpoložljivih podatkov.",
+            x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False,
+            font=dict(family="DM Sans, system-ui, sans-serif",
+                      color="#b7c3cc", size=14),
+        )],
+        meta={"base_shape_count": 0},
+    )
+    return fig
+
+
+def _build_trend_figure_base(
+    df: pd.DataFrame,
+    region_code: str,
+    mode: str,
+    event_meta: dict,
+    pollutant: str,
+) -> go.Figure:
+    """Pure builder for the trend Plotly figure WITHOUT the day-marker.
+
+    Same inputs ⇒ same output, so the result is safe to cache at module
+    import and reuse across sessions. The day-marker is added client-side
+    via the ``trend_day_marker`` custom message; that keeps slider drags
+    from re-shipping the whole figure over the websocket.
+    """
+    if df.empty:
+        return _empty_trend_figure()
+
+    spec = POLLUTANT_SPEC.get(pollutant, POLLUTANT_SPEC["NO2"])
+    unit = spec.get("display_unit", NO2_UNIT)
+    p_short = spec.get("short", pollutant)
+    decimals = spec.get("decimals", 1)
+
+    if region_code:
+        sub = df[df["region_code"] == region_code].sort_values("day_index").copy()
+        if sub.empty:
+            # Region not present in this event/pollutant slice — show composite.
+            region_code = ""
+    if not region_code:
+        sub = (
+            df.groupby(["day_index", "date"], as_index=False)
+            .agg(
+                value_mean=("value_mean", "mean"),
+                value_min=("value_min", "min"),
+                value_max=("value_max", "max"),
+            )
+            .sort_values("day_index")
+        )
+        title = "Povprečje vseh slovenskih regij"
+    else:
+        title = f"Trend za {sub['region_name'].iloc[0]} ({region_code})"
+
+    if mode == "anomaly":
+        baseline = sub["value_mean"].mean()
+        sub["plot_value"] = sub["value_mean"] - baseline
+        if "value_min" in sub.columns:
+            sub["band_low"] = sub["value_min"] - baseline
+            sub["band_high"] = sub["value_max"] - baseline
+        y_title = f"Odstopanje {p_short} ({unit})"
+    else:
+        sub["plot_value"] = sub["value_mean"]
+        sub["band_low"] = sub.get("value_min", sub["value_mean"])
+        sub["band_high"] = sub.get("value_max", sub["value_mean"])
+        y_title = f"{p_short} ({unit})"
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=sub["date"], y=sub["band_high"],
+        mode="lines", line=dict(width=0),
+        name="max", showlegend=False, hoverinfo="skip",
+    ))
+    fig.add_trace(go.Scatter(
+        x=sub["date"], y=sub["band_low"],
+        mode="lines", line=dict(width=0),
+        fill="tonexty", fillcolor="rgba(108,200,176,0.12)",
+        name="min–max", hoverinfo="skip", showlegend=False,
+    ))
+    fig.add_trace(go.Scatter(
+        x=sub["date"], y=sub["plot_value"],
+        mode="lines+markers",
+        line=dict(color="#6cc8b0", width=2.4,
+                  shape="spline", smoothing=0.5),
+        marker=dict(size=5, color="#6cc8b0",
+                    line=dict(color="#0f141a", width=1)),
+        name="povprečje",
+        hovertemplate=(
+            "<b>%{x}</b><br>"
+            f"%{{y:.{decimals}f}} {unit}<extra></extra>"
+        ),
+    ))
+
+    if event_meta and event_meta.get("event_start") and event_meta.get("event_end"):
+        es = event_meta["event_start"]; ee = event_meta["event_end"]
+        available = set(sub["date"].astype(str).tolist())
+        if es in available and ee in available:
+            if es == ee:
+                fig.add_vline(
+                    x=es,
+                    line=dict(color="#e6824c", width=2),
+                )
+                fig.add_annotation(
+                    x=es, y=1, yref="paper", showarrow=False,
+                    text="Dan dogodka", yanchor="bottom",
+                    font=dict(family="Manrope, system-ui, sans-serif",
+                              color="#e6824c", size=11),
+                )
+            else:
+                fig.add_vrect(
+                    x0=es, x1=ee,
+                    fillcolor="rgba(230,130,76,0.12)",
+                    line=dict(width=0),
+                )
+                fig.add_annotation(
+                    x=es, y=1, yref="paper", showarrow=False,
+                    text="Obdobje dogodka", yanchor="bottom",
+                    xanchor="left",
+                    font=dict(family="Manrope, system-ui, sans-serif",
+                              color="#e6824c", size=11),
+                )
+
+    # Count baseline shapes so the JS day-marker handler knows where to
+    # slice when replacing the per-day vertical line.
+    base_shape_count = len(fig.layout.shapes or [])
+
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(28,37,48,0.45)",
+        title=dict(
+            text=title,
+            font=dict(family="Manrope, system-ui, sans-serif",
+                      color="#ebf0f3", size=14),
+            x=0.01, y=0.96,
+        ),
+        xaxis=dict(
+            title=None,
+            gridcolor="rgba(255,255,255,0.05)",
+            zerolinecolor="rgba(255,255,255,0.12)",
+            linecolor="rgba(255,255,255,0.12)",
+            tickfont=dict(family="DM Sans, system-ui, sans-serif",
+                          color="#b7c3cc", size=11),
+            showline=True,
+            tickangle=-45,
+        ),
+        yaxis=dict(
+            title=dict(text=y_title,
+                       font=dict(family="DM Sans, system-ui, sans-serif",
+                                 color="#b7c3cc", size=11)),
+            gridcolor="rgba(255,255,255,0.05)",
+            zerolinecolor="rgba(255,255,255,0.12)",
+            linecolor="rgba(80,200,165,0.25)",
+            tickfont=dict(family="JetBrains Mono, monospace",
+                          color="#95aaa3", size=10),
+            showline=True,
+        ),
+        font=dict(family="DM Sans, system-ui, sans-serif", color="#b7c3cc"),
+        height=360,
+        margin=dict(l=60, r=20, t=50, b=70),
+        hoverlabel=dict(
+            bgcolor="rgba(22,29,37,0.96)",
+            bordercolor="rgba(108,200,176,0.40)",
+            font=dict(family="DM Sans, system-ui, sans-serif",
+                      color="#ebf0f3", size=12),
+        ),
+        showlegend=False,
+        meta={"base_shape_count": base_shape_count},
+    )
+    return fig
+
+
+def _build_event_pollutant_block(
+    sub: pd.DataFrame,
+    event_meta: dict | None = None,
+    pollutant: str = "NO2",
+) -> dict:
+    """Build a single (event, pollutant) cache entry from a pre-filtered df.
+
+    Also precomputes a trend figure for every (region_code, mode) combo so
+    that the dashboard can serve chart clicks straight from the cache.
+    """
     if sub.empty:
         return {
             "df": sub,
@@ -321,6 +507,8 @@ def _build_event_pollutant_block(sub: pd.DataFrame) -> dict:
             "region_choices": {"": "All regions (Slovenia composite)"},
             "max_day": 31,
             "days": {},
+            "trend_figures": {},
+            "trend_marker_values": {},
         }
     sub = sub.copy()
     month_means = sub.groupby("region_code")["value_mean"].mean()
@@ -342,12 +530,30 @@ def _build_event_pollutant_block(sub: pd.DataFrame) -> dict:
     for day, group in sub.groupby("day_index"):
         days[int(day)] = group.reset_index(drop=True)
 
+    # ---- precompute trend figures (no day-marker) -------------------------
+    region_codes = [""] + [str(c) for c in regs["region_code"].tolist()]
+    trend_figures: dict[tuple[str, str], go.Figure] = {}
+    for rc in region_codes:
+        for m in ("absolute", "anomaly"):
+            trend_figures[(rc, m)] = _build_trend_figure_base(
+                sub, rc, m, event_meta or {}, pollutant,
+            )
+
+    # ---- precompute per-day marker x/date for instant marker push ---------
+    # day_index -> "YYYY-MM-DD" string used as Plotly x coord
+    trend_marker_values: dict[int, str] = {}
+    for day, group in sub.groupby("day_index"):
+        date_val = group["date"].iloc[0]
+        trend_marker_values[int(day)] = str(date_val)
+
     return {
         "df": sub,
         "month_means": month_means,
         "region_choices": region_choices,
         "max_day": max_day,
         "days": days,
+        "trend_figures": trend_figures,
+        "trend_marker_values": trend_marker_values,
     }
 
 
@@ -383,7 +589,9 @@ def build_event_cache(df: pd.DataFrame, events: list[dict]) -> dict[str, dict]:
         by_pollutant: dict[str, dict] = {}
         for pollutant in present_pollutants:
             sub = df[(df["event_id"] == eid) & (df["pollutant"] == pollutant)]
-            by_pollutant[pollutant] = _build_event_pollutant_block(sub)
+            by_pollutant[pollutant] = _build_event_pollutant_block(
+                sub, event_meta=event, pollutant=pollutant,
+            )
 
         # Order pollutants: configured default-first, then any extras in stable order
         configured_order = EVENT_POLLUTANTS_DEFAULT.get(eid, [])
@@ -729,11 +937,22 @@ app_ui = ui.page_fluid(
         ui.div(
             ui.div(
                 ui.div(
-                    ui.div("Povleci, da se pomakneš po mesecu",
+                    ui.div("Povleci ali predvajaj animacijo skozi mesec",
                            class_="label"),
                     ui.div(
-                        ui.output_text("selected_date_display", inline=True),
-                        class_="current-date",
+                        ui.tags.button(
+                            ui.tags.span(class_="play-icon"),
+                            ui.tags.span("Predvajaj", class_="play-label"),
+                            id="aw-play-toggle",
+                            type="button",
+                            class_="aw-play-btn",
+                            **{"aria-label": "Predvajaj animacijo skozi mesec"},
+                        ),
+                        ui.div(
+                            ui.output_text("selected_date_display", inline=True),
+                            class_="current-date",
+                        ),
+                        class_="aw-timeline-current",
                     ),
                 ),
                 ui.div(
@@ -1016,6 +1235,95 @@ def _fmt_value(value: Any) -> str:
         return "—"
 
 
+# ---------------------------------------------------------------------------
+# Map restyle helpers — used by the client-side Plotly.restyle pipeline that
+# replaces only the choropleth's z/locations/customdata on each day tick,
+# instead of rebuilding the whole mapbox figure.
+# ---------------------------------------------------------------------------
+
+_QUALITY_SLO = {"GOOD": "dobra", "PARTIAL": "delna", "MISSING": "ni podatkov"}
+
+
+def _map_value_customdata(df: pd.DataFrame) -> list[list]:
+    """Per-row hover payload for the values choropleth trace."""
+    out: list[list] = []
+    for _, r in df.iterrows():
+        out.append([
+            str(r["region_name"]),
+            _slovene_date(str(r["date"])),
+            float(r["value_mean"]) if pd.notna(r["value_mean"]) else None,
+            float(r["value_min"]) if pd.notna(r["value_min"]) else None,
+            float(r["value_max"]) if pd.notna(r["value_max"]) else None,
+            float(r["sample_count"]) if pd.notna(r["sample_count"]) else None,
+            _QUALITY_SLO.get(str(r.get("quality_status", "")).upper(), ""),
+        ])
+    return out
+
+
+def _map_no_data_customdata(df: pd.DataFrame) -> list[list]:
+    """Per-row hover payload for the no-data (grey) choropleth trace."""
+    return [
+        [str(r["region_name"]), _slovene_date(str(r["date"]))]
+        for _, r in df.iterrows()
+    ]
+
+
+def _map_color_range(block: dict, mode: str) -> tuple[float, float]:
+    """Stable colour-scale range across the whole event month.
+
+    Computed once per (event, pollutant, mode) so the choropleth's colours
+    stay comparable as we animate through the days. Without this, zmin/zmax
+    would shift per day and identical concentrations would appear different.
+    """
+    days = block.get("days") or {}
+    if not days:
+        return (0.0, 1.0)
+    if mode == "anomaly":
+        series = [d["value_anomaly"] for d in days.values()
+                  if "value_anomaly" in d.columns]
+        if not series:
+            return (-1.0, 1.0)
+        vals = pd.concat(series).dropna()
+        if vals.empty:
+            return (-1.0, 1.0)
+        amax = float(np.nanmax(np.abs(vals)))
+        return (-amax, amax) if amax > 0 else (-1.0, 1.0)
+    vals = pd.concat([d["value_mean"] for d in days.values()]).dropna()
+    if vals.empty:
+        return (0.0, 1.0)
+    vmin = float(np.nanmin(vals))
+    vmax = float(np.nanmax(vals))
+    return (vmin, max(vmax, vmin + 1e-6))
+
+
+def _map_restyle_payload(df_disp: pd.DataFrame) -> dict:
+    """Build the JSON payload pushed to the client on each day tick.
+
+    `df_disp` must already have a `value_display` column (set by the
+    `day_df_display` reactive — value_mean in absolute mode, value_anomaly
+    in anomaly mode). Returns {with_value: …, without_value: …} where each
+    block carries the arrays needed by Plotly.restyle.
+    """
+    if df_disp.empty:
+        return {
+            "with_value": {"locations": [], "z": [], "customdata": []},
+            "without_value": {"locations": [], "customdata": []},
+        }
+    wv = df_disp.dropna(subset=["value_display"])
+    nv = df_disp[df_disp["value_display"].isna()]
+    return {
+        "with_value": {
+            "locations": wv["region_code"].astype(str).tolist(),
+            "z": wv["value_display"].astype(float).tolist(),
+            "customdata": _map_value_customdata(wv),
+        },
+        "without_value": {
+            "locations": nv["region_code"].astype(str).tolist(),
+            "customdata": _map_no_data_customdata(nv),
+        },
+    }
+
+
 def server(input, output, session):
 
     # -------- reactive data -------------------------------------------------
@@ -1280,17 +1588,28 @@ def server(input, output, session):
                 if mode == "anomaly"
                 else f"Prikaz: dejanske vrednosti {short}")
 
-    @output
-    @render_widget
-    def map_plot():
-        df_disp = day_df_display()
+    # The map figure is rebuilt only when event / pollutant / display_mode /
+    # region_code change — NOT on every day tick. The current day's values are
+    # pushed via a custom message (`map_restyle`) that the client applies with
+    # Plotly.restyle, so the mapbox tiles and geojson stay mounted between
+    # frames. Without this scoping the entire figure shipped over the
+    # websocket on each tick and the browser tore down the choropleth.
+    @reactive.calc
+    @reactive.event(input.event_id,
+                    input.pollutant,
+                    input.display_mode,
+                    input.region_code)
+    def map_figure():
+        with reactive.isolate():
+            df_disp = day_df_display()
+        block = pollutant_block()
         ev = selected_event()
         mode = input.display_mode() if "display_mode" in input else "absolute"
         selected_region = input.region_code() if "region_code" in input else ""
         fig = go.Figure()
 
         # Empty-state map
-        if df_disp.empty or not _REGIONS_GEOJSON.get("features"):
+        if not _REGIONS_GEOJSON.get("features"):
             fig.update_layout(
                 paper_bgcolor="#0a0e13",
                 plot_bgcolor="#0a0e13",
@@ -1311,128 +1630,100 @@ def server(input, output, session):
             )
             return fig
 
-        merged = df_disp.copy()
-        # custom hover data
-        merged["_hover_region"] = merged["region_name"]
-        merged["_hover_date"] = merged["date"]
-        merged["_hover_mean"] = merged["value_mean"]
-        merged["_hover_min"] = merged["value_min"]
-        merged["_hover_max"] = merged["value_max"]
-        merged["_hover_samples"] = merged["sample_count"]
-        merged["_hover_quality"] = merged["quality_status"].astype(str).str.upper()
-        merged["_hover_source"] = merged.get("source", pd.Series(["Sentinel-5P"] * len(merged)))
+        # Month-wide colour range — stable as we animate through the days.
+        zmin, zmax = _map_color_range(block, mode)
+        unit = current_unit()
+        p_short = pollutant_spec()["short"]
+        decimals = pollutant_spec().get("decimals", 1)
+        if mode == "anomaly":
+            cscale = ANOMALY_COLORSCALE
+            color_title = f"Odstopanje {p_short} od povp. meseca"
+        else:
+            cscale = NO2_COLORSCALE
+            color_title = f"{p_short} ({unit})"
 
-        with_value = merged.dropna(subset=["value_display"])
-        without_value = merged[merged["value_display"].isna()]
+        # Initial-paint slices (day at build time). After this, restyle owns it.
+        if df_disp.empty:
+            wv = pd.DataFrame(columns=["region_code", "value_display"])
+            nv = pd.DataFrame(columns=["region_code"])
+        else:
+            wv = df_disp.dropna(subset=["value_display"])
+            nv = df_disp[df_disp["value_display"].isna()]
 
-        # ---- Layer 1: choropleth for regions with data
-        if not with_value.empty:
-            unit = current_unit()
-            p_short = pollutant_spec()["short"]
-            decimals = pollutant_spec().get("decimals", 1)
-            if mode == "anomaly":
-                amax = float(np.nanmax(np.abs(with_value["value_display"]))) or 1.0
-                zmin, zmax, cscale = -amax, amax, ANOMALY_COLORSCALE
-                color_title = f"Odstopanje {p_short} od povp. meseca"
-            else:
-                vmax = float(np.nanmax(with_value["value_display"]))
-                vmin = float(np.nanmin(with_value["value_display"]))
-                zmin, zmax, cscale = vmin, max(vmax, vmin + 1e-6), NO2_COLORSCALE
-                color_title = f"{p_short} ({unit})"
+        hovertemplate_val = (
+            "<b>%{customdata[0]}</b><br>"
+            "%{customdata[1]}<br>"
+            f"{p_short}: %{{customdata[2]:.{decimals}f}} {unit}<br>"
+            f"Najmanj/največ: %{{customdata[3]:.{decimals}f}} / %{{customdata[4]:.{decimals}f}}<br>"
+            "Kakovost meritve: %{customdata[6]}"
+            "<extra></extra>"
+        )
 
-            # Friendly Slovene labels for quality status in tooltip
-            quality_slo = {
-                "GOOD": "dobra",
-                "PARTIAL": "delna",
-                "MISSING": "ni podatkov",
-            }
-
-            customdata = np.stack([
-                with_value["_hover_region"].astype(str).values,
-                np.array([_slovene_date(d)
-                          for d in with_value["_hover_date"].astype(str).values]),
-                with_value["_hover_mean"].astype(float).values,
-                with_value["_hover_min"].astype(float).values,
-                with_value["_hover_max"].astype(float).values,
-                with_value["_hover_samples"].astype(float).values,
-                np.array([quality_slo.get(q, q.lower())
-                          for q in with_value["_hover_quality"].values]),
-            ], axis=-1)
-
-            hovertemplate = (
-                "<b>%{customdata[0]}</b><br>"
-                "%{customdata[1]}<br>"
-                f"{p_short}: %{{customdata[2]:.{decimals}f}} {unit}<br>"
-                f"Najmanj/največ: %{{customdata[3]:.{decimals}f}} / %{{customdata[4]:.{decimals}f}}<br>"
-                "Kakovost meritve: %{customdata[6]}"
-                "<extra></extra>"
+        # ---- Trace 0: choropleth for regions WITH data
+        # Always added (possibly empty) so the trace index stays stable for
+        # client-side Plotly.restyle.
+        fig.add_trace(
+            go.Choroplethmapbox(
+                geojson=_REGIONS_GEOJSON,
+                locations=wv["region_code"].astype(str).tolist(),
+                z=wv["value_display"].astype(float).tolist() if not wv.empty else [],
+                featureidkey="properties.region_code",
+                colorscale=cscale,
+                zmin=zmin, zmax=zmax,
+                marker=dict(
+                    line=dict(color="rgba(255,255,255,0.18)", width=0.6),
+                    opacity=0.85,
+                ),
+                customdata=_map_value_customdata(wv) if not wv.empty else [],
+                hovertemplate=hovertemplate_val,
+                colorbar=dict(
+                    title=dict(
+                        text=color_title,
+                        font=dict(family="Manrope, system-ui, sans-serif",
+                                  color="#b7c3cc", size=11),
+                    ),
+                    thickness=10,
+                    len=0.55,
+                    x=0.985,
+                    y=0.45,
+                    bgcolor="rgba(22,29,37,0.85)",
+                    bordercolor="rgba(255,255,255,0.10)",
+                    borderwidth=1,
+                    tickfont=dict(family="JetBrains Mono, monospace",
+                                  color="#b7c3cc", size=10),
+                    outlinecolor="rgba(255,255,255,0.10)",
+                    ticks="outside",
+                ),
+                name="",
+                showscale=True,
+                uirevision="map-keep-view",
             )
+        )
 
-            fig.add_trace(
-                go.Choroplethmapbox(
-                    geojson=_REGIONS_GEOJSON,
-                    locations=with_value["region_code"],
-                    z=with_value["value_display"],
-                    featureidkey="properties.region_code",
-                    colorscale=cscale,
-                    zmin=zmin, zmax=zmax,
-                    marker=dict(
-                        line=dict(color="rgba(255,255,255,0.18)", width=0.6),
-                        opacity=0.85,
-                    ),
-                    customdata=customdata,
-                    hovertemplate=hovertemplate,
-                    colorbar=dict(
-                        title=dict(
-                            text=color_title,
-                            font=dict(family="Manrope, system-ui, sans-serif",
-                                      color="#b7c3cc", size=11),
-                        ),
-                        thickness=10,
-                        len=0.55,
-                        x=0.985,
-                        y=0.45,
-                        bgcolor="rgba(22,29,37,0.85)",
-                        bordercolor="rgba(255,255,255,0.10)",
-                        borderwidth=1,
-                        tickfont=dict(family="JetBrains Mono, monospace",
-                                      color="#b7c3cc", size=10),
-                        outlinecolor="rgba(255,255,255,0.10)",
-                        ticks="outside",
-                    ),
-                    name="",
-                    showscale=True,
-                )
+        # ---- Trace 1: choropleth for regions WITHOUT data (always added)
+        fig.add_trace(
+            go.Choroplethmapbox(
+                geojson=_REGIONS_GEOJSON,
+                locations=nv["region_code"].astype(str).tolist(),
+                z=[0.0] * len(nv),
+                featureidkey="properties.region_code",
+                colorscale=[[0, "rgba(60,72,82,0.55)"], [1, "rgba(60,72,82,0.55)"]],
+                showscale=False,
+                marker=dict(
+                    line=dict(color="rgba(255,255,255,0.12)", width=0.5),
+                    opacity=0.55,
+                ),
+                customdata=_map_no_data_customdata(nv) if not nv.empty else [],
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>"
+                    "%{customdata[1]}<br>"
+                    "Ni zanesljive satelitske meritve."
+                    "<extra></extra>"
+                ),
+                name="",
+                uirevision="map-keep-view",
             )
-
-        # ---- Layer 2: regions WITHOUT data — muted grey, friendly tooltip
-        if not without_value.empty:
-            fig.add_trace(
-                go.Choroplethmapbox(
-                    geojson=_REGIONS_GEOJSON,
-                    locations=without_value["region_code"],
-                    z=np.zeros(len(without_value)),
-                    featureidkey="properties.region_code",
-                    colorscale=[[0, "rgba(60,72,82,0.55)"], [1, "rgba(60,72,82,0.55)"]],
-                    showscale=False,
-                    marker=dict(
-                        line=dict(color="rgba(255,255,255,0.12)", width=0.5),
-                        opacity=0.55,
-                    ),
-                    customdata=np.stack([
-                        without_value["_hover_region"].astype(str).values,
-                        np.array([_slovene_date(d)
-                                  for d in without_value["_hover_date"].astype(str).values]),
-                    ], axis=-1),
-                    hovertemplate=(
-                        "<b>%{customdata[0]}</b><br>"
-                        "%{customdata[1]}<br>"
-                        "Ni zanesljive satelitske meritve."
-                        "<extra></extra>"
-                    ),
-                    name="",
-                )
-            )
+        )
 
         # ---- Layer 3: subtle highlight ring on selected region's centroid
         if selected_region and selected_region in _REGION_CENTROIDS:
@@ -1499,6 +1790,35 @@ def server(input, output, session):
             transition=dict(duration=320, easing="cubic-in-out"),
         )
         return fig
+
+    @output
+    @render_widget
+    def map_plot():
+        # The widget is bound to the slow-changing figure. Day-by-day data
+        # arrives via the `map_restyle` custom message (see effect below).
+        return map_figure()
+
+    @reactive.effect
+    async def _push_map_restyle():
+        # Re-fires when the slider day, the event, the pollutant or the mode
+        # changes. The full figure is rebuilt only on the latter three; this
+        # effect ships only the day's z/locations/customdata.
+        _ = input.event_id()
+        if "pollutant" in input:
+            input.pollutant()
+        if "display_mode" in input:
+            input.display_mode()
+        _ = input.day_index()
+
+        df = day_df_display()
+        if df.empty:
+            return
+        payload = _map_restyle_payload(df)
+        try:
+            await session.send_custom_message("map_restyle", payload)
+        except Exception:
+            # Session can be torn down mid-animation; swallow gracefully.
+            pass
 
     # -------- SUMMARY READOUTS --------------------------------------------
 
@@ -1726,179 +2046,57 @@ def server(input, output, session):
 
     # -------- TREND CHART --------------------------------------------------
 
+    # The trend figure is precomputed at module import for every
+    # (event, pollutant, region, mode) combination, so each user click is a
+    # dict lookup with no pandas/Plotly work. The slider's selected-day
+    # vertical line is pushed via the `trend_day_marker` custom message
+    # (see effect below) and rendered client-side with Plotly.relayout —
+    # so dragging the slider never re-ships the whole chart.
+    @reactive.calc
+    @reactive.event(input.event_id,
+                    input.pollutant,
+                    input.display_mode,
+                    input.region_code)
+    def trend_figure_cached():
+        block = pollutant_block()
+        figs = block.get("trend_figures") or {}
+        region = input.region_code() if "region_code" in input else ""
+        mode = input.display_mode() if "display_mode" in input else "absolute"
+        fig = figs.get((region, mode))
+        if fig is None:
+            fig = figs.get(("", mode))
+        return fig if fig is not None else _empty_trend_figure()
+
     @output
     @render_widget
     def trend_plot():
-        df = event_df()
-        region_code = input.region_code() if "region_code" in input else ""
-        mode = input.display_mode() if "display_mode" in input else "absolute"
-        ev = selected_event()
-        fig = go.Figure()
+        return trend_figure_cached()
 
-        if df.empty:
-            fig.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                height=360,
-                margin=dict(l=40, r=20, t=30, b=40),
-                annotations=[dict(
-                    text="Ni razpoložljivih podatkov.",
-                    x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False,
-                    font=dict(family="DM Sans, system-ui, sans-serif",
-                              color="#b7c3cc", size=14),
-                )],
+    @reactive.effect
+    async def _push_trend_day_marker():
+        # Re-fires when the day slider, the event, the pollutant, the
+        # display mode or the region changes. Ships only the current
+        # day's x coordinate — the JS handler does a Plotly.relayout to
+        # add/replace a single dotted line.
+        _ = input.event_id()
+        if "pollutant" in input:
+            input.pollutant()
+        if "display_mode" in input:
+            input.display_mode()
+        if "region_code" in input:
+            input.region_code()
+        day = input.day_index() or 1
+
+        block = pollutant_block()
+        marker_values = block.get("trend_marker_values") or {}
+        date = marker_values.get(int(day))
+        try:
+            await session.send_custom_message(
+                "trend_day_marker", {"date": date}
             )
-            return fig
-
-        if region_code:
-            sub = df[df["region_code"] == region_code].sort_values("day_index").copy()
-            title = f"Trend za {sub['region_name'].iloc[0]} ({region_code})"
-        else:
-            sub = (
-                df.groupby(["day_index", "date"], as_index=False)
-                .agg(
-                    value_mean=("value_mean", "mean"),
-                    value_min=("value_min", "min"),
-                    value_max=("value_max", "max"),
-                )
-                .sort_values("day_index")
-            )
-            title = "Povprečje vseh slovenskih regij"
-
-        unit = current_unit()
-        p_short = pollutant_spec()["short"]
-        decimals = pollutant_spec().get("decimals", 1)
-
-        # Anomaly mode: subtract per-region (or composite) baseline
-        if mode == "anomaly":
-            baseline = sub["value_mean"].mean()
-            sub["plot_value"] = sub["value_mean"] - baseline
-            if "value_min" in sub.columns:
-                sub["band_low"] = sub["value_min"] - baseline
-                sub["band_high"] = sub["value_max"] - baseline
-            y_title = f"Odstopanje {p_short} ({unit})"
-        else:
-            sub["plot_value"] = sub["value_mean"]
-            sub["band_low"] = sub.get("value_min", sub["value_mean"])
-            sub["band_high"] = sub.get("value_max", sub["value_mean"])
-            y_title = f"{p_short} ({unit})"
-
-        # Min-Max band (sea-foam tint to match accent)
-        fig.add_trace(go.Scatter(
-            x=sub["date"], y=sub["band_high"],
-            mode="lines", line=dict(width=0),
-            name="max", showlegend=False, hoverinfo="skip",
-        ))
-        fig.add_trace(go.Scatter(
-            x=sub["date"], y=sub["band_low"],
-            mode="lines", line=dict(width=0),
-            fill="tonexty", fillcolor="rgba(108,200,176,0.12)",
-            name="min–max", hoverinfo="skip", showlegend=False,
-        ))
-
-        # Mean line
-        fig.add_trace(go.Scatter(
-            x=sub["date"], y=sub["plot_value"],
-            mode="lines+markers",
-            line=dict(color="#6cc8b0", width=2.4,
-                      shape="spline", smoothing=0.5),
-            marker=dict(size=5, color="#6cc8b0",
-                        line=dict(color="#0f141a", width=1)),
-            name="povprečje",
-            hovertemplate=(
-                "<b>%{x}</b><br>"
-                f"%{{y:.{decimals}f}} {unit}<extra></extra>"
-            ),
-        ))
-
-        # Event window shading (calm orange instead of neon)
-        if ev and ev.get("event_start") and ev.get("event_end"):
-            es = ev["event_start"]; ee = ev["event_end"]
-            available = set(sub["date"].astype(str).tolist())
-            if es in available and ee in available:
-                if es == ee:
-                    fig.add_vline(
-                        x=es,
-                        line=dict(color="#e6824c", width=2),
-                    )
-                    fig.add_annotation(
-                        x=es, y=1, yref="paper", showarrow=False,
-                        text="Dan dogodka", yanchor="bottom",
-                        font=dict(family="Manrope, system-ui, sans-serif",
-                                  color="#e6824c", size=11),
-                    )
-                else:
-                    fig.add_vrect(
-                        x0=es, x1=ee,
-                        fillcolor="rgba(230,130,76,0.12)",
-                        line=dict(width=0),
-                    )
-                    fig.add_annotation(
-                        x=es, y=1, yref="paper", showarrow=False,
-                        text="Obdobje dogodka", yanchor="bottom",
-                        xanchor="left",
-                        font=dict(family="Manrope, system-ui, sans-serif",
-                                  color="#e6824c", size=11),
-                    )
-
-        # Highlight selected day
-        day_index = input.day_index() or 1
-        if day_index in set(sub["day_index"].astype(int).tolist()):
-            sel = sub[sub["day_index"] == day_index].iloc[0]
-            fig.add_vline(
-                x=sel["date"],
-                line=dict(color="#ebf0f3", dash="dot", width=1.4),
-            )
-            fig.add_trace(go.Scatter(
-                x=[sel["date"]], y=[sel["plot_value"]],
-                mode="markers",
-                marker=dict(size=12, color="#ebf0f3",
-                            line=dict(color="#6cc8b0", width=2.5)),
-                hoverinfo="skip", showlegend=False,
-            ))
-
-        fig.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(28,37,48,0.45)",
-            title=dict(
-                text=title,
-                font=dict(family="Manrope, system-ui, sans-serif",
-                          color="#ebf0f3", size=14),
-                x=0.01, y=0.96,
-            ),
-            xaxis=dict(
-                title=None,
-                gridcolor="rgba(255,255,255,0.05)",
-                zerolinecolor="rgba(255,255,255,0.12)",
-                linecolor="rgba(255,255,255,0.12)",
-                tickfont=dict(family="DM Sans, system-ui, sans-serif",
-                              color="#b7c3cc", size=11),
-                showline=True,
-                tickangle=-45,
-            ),
-            yaxis=dict(
-                title=dict(text=y_title,
-                           font=dict(family="DM Sans, system-ui, sans-serif",
-                                     color="#b7c3cc", size=11)),
-                gridcolor="rgba(255,255,255,0.05)",
-                zerolinecolor="rgba(255,255,255,0.12)",
-                linecolor="rgba(80,200,165,0.25)",
-                tickfont=dict(family="JetBrains Mono, monospace",
-                              color="#95aaa3", size=10),
-                showline=True,
-            ),
-            font=dict(family="DM Sans, system-ui, sans-serif", color="#b7c3cc"),
-            height=360,
-            margin=dict(l=60, r=20, t=50, b=70),
-            hoverlabel=dict(
-                bgcolor="rgba(22,29,37,0.96)",
-                bordercolor="rgba(108,200,176,0.40)",
-                font=dict(family="DM Sans, system-ui, sans-serif",
-                          color="#ebf0f3", size=12),
-            ),
-            showlegend=False,
-        )
-        return fig
+        except Exception:
+            # Session can be torn down mid-animation; swallow gracefully.
+            pass
 
     # -------- METHODOLOGY + EVENT META -------------------------------------
 

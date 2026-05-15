@@ -376,6 +376,81 @@ a { color: var(--accent); }
   color: var(--text-2);
 }
 
+/* play/pause auto-scrubber */
+.aw-timeline-current {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.aw-play-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px 7px 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-family: var(--display);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease, box-shadow 0.2s ease;
+}
+.aw-play-btn:hover {
+  background: var(--accent);
+  color: var(--bg-surface);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+.aw-play-btn:active { transform: scale(0.96); }
+.aw-play-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.aw-play-btn .play-icon {
+  position: relative;
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+}
+.aw-play-btn .play-icon::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-style: solid;
+  border-color: transparent transparent transparent currentColor;
+  border-width: 5.5px 0 5.5px 10px;
+  transition: opacity 0.15s ease;
+}
+.aw-play-btn .play-icon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to right,
+    currentColor 0 36%,
+    transparent 36% 64%,
+    currentColor 64% 100%
+  );
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.aw-play-btn.is-playing {
+  background: var(--accent);
+  color: var(--bg-surface);
+  animation: aw-play-pulse 1.6s ease-in-out infinite;
+}
+.aw-play-btn.is-playing .play-icon::before { opacity: 0; }
+.aw-play-btn.is-playing .play-icon::after  { opacity: 1; }
+@keyframes aw-play-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
+  50%      { box-shadow: 0 0 0 7px transparent; }
+}
+
 .aw-slider-stage {
   position: relative;
   padding: 6px 0 0 0;
