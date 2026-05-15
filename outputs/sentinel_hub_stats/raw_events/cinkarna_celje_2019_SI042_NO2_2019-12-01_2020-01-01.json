@@ -1,0 +1,688 @@
+{
+  "data": [
+    {
+      "interval": {
+        "from": "2019-12-01T00:00:00Z",
+        "to": "2019-12-02T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-02T00:00:00Z",
+        "to": "2019-12-03T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-03T00:00:00Z",
+        "to": "2019-12-04T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": 1.1490325050544925e-05,
+                "max": 7.423289935104549e-05,
+                "mean": 4.2184325149259386e-05,
+                "stDev": 1.5950379110258555e-05,
+                "sampleCount": 180,
+                "noDataCount": 93
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-04T00:00:00Z",
+        "to": "2019-12-05T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": -7.234121767396573e-06,
+                "max": 0.00012101616448489949,
+                "mean": 3.5796030838157644e-05,
+                "stDev": 2.0547325228102162e-05,
+                "sampleCount": 180,
+                "noDataCount": 65
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-05T00:00:00Z",
+        "to": "2019-12-06T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": 1.2809774716515676e-06,
+                "max": 8.749085827730596e-05,
+                "mean": 3.3261684128168164e-05,
+                "stDev": 1.8014101681321123e-05,
+                "sampleCount": 180,
+                "noDataCount": 123
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-06T00:00:00Z",
+        "to": "2019-12-07T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": -2.2680958863929845e-05,
+                "max": 6.780722469557077e-05,
+                "mean": 1.724089701491348e-05,
+                "stDev": 1.8562455155492563e-05,
+                "sampleCount": 180,
+                "noDataCount": 141
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-07T00:00:00Z",
+        "to": "2019-12-08T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": -2.6778534447657876e-06,
+                "max": 3.2516123610548675e-05,
+                "mean": 1.769991479250166e-05,
+                "stDev": 1.6183447573206823e-05,
+                "sampleCount": 180,
+                "noDataCount": 175
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-08T00:00:00Z",
+        "to": "2019-12-09T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": 8.603400601714384e-06,
+                "max": 0.00014179166464600712,
+                "mean": 5.7775488825096884e-05,
+                "stDev": 3.771871815422855e-05,
+                "sampleCount": 180,
+                "noDataCount": 125
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-09T00:00:00Z",
+        "to": "2019-12-10T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-10T00:00:00Z",
+        "to": "2019-12-11T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": 1.5294464901671745e-05,
+                "max": 9.100990428123623e-05,
+                "mean": 4.912059152439159e-05,
+                "stDev": 1.6937278346553418e-05,
+                "sampleCount": 180,
+                "noDataCount": 101
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-11T00:00:00Z",
+        "to": "2019-12-12T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": -2.4845829102559946e-05,
+                "max": 0.00010706623288569972,
+                "mean": 3.334227103538961e-05,
+                "stDev": 2.570747994946474e-05,
+                "sampleCount": 180,
+                "noDataCount": 60
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-12T00:00:00Z",
+        "to": "2019-12-13T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-13T00:00:00Z",
+        "to": "2019-12-14T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-14T00:00:00Z",
+        "to": "2019-12-15T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": 1.2900590263598133e-05,
+                "max": 7.697460387134925e-05,
+                "mean": 3.789003541377107e-05,
+                "stDev": 1.6559964723146304e-05,
+                "sampleCount": 180,
+                "noDataCount": 75
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-15T00:00:00Z",
+        "to": "2019-12-16T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-16T00:00:00Z",
+        "to": "2019-12-17T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": 9.960721945390105e-05,
+                "max": 9.960721945390105e-05,
+                "mean": 9.960721945390105e-05,
+                "stDev": 0.0,
+                "sampleCount": 180,
+                "noDataCount": 179
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-17T00:00:00Z",
+        "to": "2019-12-18T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-18T00:00:00Z",
+        "to": "2019-12-19T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-19T00:00:00Z",
+        "to": "2019-12-20T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-20T00:00:00Z",
+        "to": "2019-12-21T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-21T00:00:00Z",
+        "to": "2019-12-22T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-22T00:00:00Z",
+        "to": "2019-12-23T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-23T00:00:00Z",
+        "to": "2019-12-24T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-24T00:00:00Z",
+        "to": "2019-12-25T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": -2.8739192202920094e-05,
+                "max": 9.303915430791676e-05,
+                "mean": 3.2961992847049256e-05,
+                "stDev": 2.4094702651439383e-05,
+                "sampleCount": 180,
+                "noDataCount": 130
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-25T00:00:00Z",
+        "to": "2019-12-26T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": -8.30768021842232e-06,
+                "max": 5.5013337259879336e-05,
+                "mean": 2.0470800794145163e-05,
+                "stDev": 1.5684636753083523e-05,
+                "sampleCount": 180,
+                "noDataCount": 98
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-26T00:00:00Z",
+        "to": "2019-12-27T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": -2.1692026166419964e-06,
+                "max": 9.688155114417896e-05,
+                "mean": 3.610327588847842e-05,
+                "stDev": 2.405521061655121e-05,
+                "sampleCount": 180,
+                "noDataCount": 73
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-27T00:00:00Z",
+        "to": "2019-12-28T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": "NaN",
+                "max": "NaN",
+                "mean": "NaN",
+                "stDev": "NaN",
+                "sampleCount": 180,
+                "noDataCount": 180
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-28T00:00:00Z",
+        "to": "2019-12-29T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": -1.6940171917667612e-05,
+                "max": 9.517619764665142e-05,
+                "mean": 2.1417488376131435e-05,
+                "stDev": 1.9803390310468397e-05,
+                "sampleCount": 180,
+                "noDataCount": 86
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-29T00:00:00Z",
+        "to": "2019-12-30T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": -1.9269798485765932e-06,
+                "max": -1.9269798485765932e-06,
+                "mean": -1.9269798485765932e-06,
+                "stDev": 0.0,
+                "sampleCount": 180,
+                "noDataCount": 179
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-30T00:00:00Z",
+        "to": "2019-12-31T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": -1.3760214642388746e-05,
+                "max": 6.265105912461877e-05,
+                "mean": 2.5922092780807414e-05,
+                "stDev": 1.8323053527839212e-05,
+                "sampleCount": 180,
+                "noDataCount": 76
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "interval": {
+        "from": "2019-12-31T00:00:00Z",
+        "to": "2020-01-01T00:00:00Z"
+      },
+      "outputs": {
+        "no2": {
+          "bands": {
+            "B0": {
+              "stats": {
+                "min": -2.5211768388544442e-06,
+                "max": 9.734043851494789e-05,
+                "mean": 4.5042973941327774e-05,
+                "stDev": 1.9102369647603187e-05,
+                "sampleCount": 180,
+                "noDataCount": 101
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "status": "OK",
+  "geometryPixelCount": 123
+}

@@ -1,0 +1,4 @@
+dashboard/.venv
+**/__pycache__
+**/*.pyc
+scripts/*.ipynb

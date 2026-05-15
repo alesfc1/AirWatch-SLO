@@ -1,0 +1,13 @@
+.env
+*.nc
+*.zip
+*.part
+**/sample_data/*
+!**/sample_data/.gitkeep
+**/outputs/raw/*
+outputs/sentinel_hub_stats/raw/*
+!outputs/sentinel_hub_stats/raw/.gitkeep
+__pycache__/
+*.pyc
+.DS_Store
+.claude

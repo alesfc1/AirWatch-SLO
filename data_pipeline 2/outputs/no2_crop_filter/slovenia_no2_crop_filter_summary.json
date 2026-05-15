@@ -1,0 +1,14 @@
+{
+  "input_file": "data_pipeline/sample_data/S5P_OFFL_L2__NO2____20250311T115807_20250311T133937_38393_03_020800_20250313T042301.nc",
+  "lat_min": 45.4,
+  "lat_max": 46.9,
+  "lon_min": 13.4,
+  "lon_max": 16.6,
+  "qa_threshold": 0.75,
+  "total_pixels_in_bbox_before_qa": 632,
+  "valid_pixels_after_qa": 69,
+  "unit": "mol/m²",
+  "value_mean": 3.306649159640074e-05,
+  "value_min": 1.130456894316012e-05,
+  "value_max": 5.404165858635679e-05
+}
