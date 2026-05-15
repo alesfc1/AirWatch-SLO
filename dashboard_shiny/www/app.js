@@ -91,7 +91,7 @@
       var t = e.target;
       if (!t || t.name !== "event_id") return;
       var panels = document.querySelectorAll(
-        ".aw-map-wrap, .aw-telemetry, .aw-region-detail, .aw-trend-wrap, .aw-event-summary"
+        ".aw-map-canvas, .aw-overlay-tl, .aw-overlay-tr, .aw-overlay-bl, .aw-overlay-br, .aw-trend-wrap, .aw-event-summary"
       );
       panels.forEach(function (p) {
         p.classList.remove("aw-fade-in");
@@ -321,7 +321,7 @@
         yref: "paper",
         y0: 0,
         y1: 1,
-        line: { color: "#1a2540", dash: "dot", width: 1.4 },
+        line: { color: "#63e0ff", dash: "dot", width: 1.6 },
       });
     }
     try {

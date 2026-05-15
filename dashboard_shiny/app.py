@@ -94,21 +94,22 @@ EVENT_POLLUTANTS_DEFAULT: dict[str, list[str]] = {
     "cinkarna_celje_2019": ["SO2", "NO2"],
 }
 
-# Sequential blue color scale for absolute values — clean light-theme look.
+# Sequential intuitive scale for absolute values — green/teal (low) → amber → red (high).
 NO2_COLORSCALE = [
-    [0.00, "#eef3fb"],   # near-white — clean
-    [0.25, "#bcd2ee"],   # light blue
-    [0.55, "#7aa6db"],   # mid blue
-    [0.80, "#3b6ec9"],   # strong blue
-    [1.00, "#1b3f80"],   # deep navy — elevated
+    [0.00, "#0fb98c"],   # clean — green/teal
+    [0.30, "#5ec48f"],   # low–moderate — green
+    [0.55, "#f0b441"],   # moderate — amber
+    [0.80, "#ee7a3a"],   # high — orange
+    [1.00, "#dc4a4a"],   # critical — red
 ]
 
-# Diverging blue↔red scale for anomaly mode (negative ↔ positive vs month mean).
+# Diverging cyan ↔ red scale for anomaly mode (cleaner than usual ↔ elevated).
 ANOMALY_COLORSCALE = [
-    [0.00, "#3b6ec9"],   # cleaner than usual (blue)
-    [0.45, "#eef0f4"],
-    [0.55, "#eef0f4"],   # neutral band
-    [1.00, "#d04a52"],   # elevated above usual (red)
+    [0.00, "#3ddcc7"],   # much cleaner than usual (cyan)
+    [0.35, "#2e8aa6"],   # mildly cleaner
+    [0.50, "#2c3d59"],   # neutral (matches dark UI)
+    [0.65, "#ee7a3a"],   # mildly elevated
+    [1.00, "#dc4a4a"],   # much elevated than usual (red)
 ]
 
 
@@ -317,13 +318,13 @@ def _empty_trend_figure() -> go.Figure:
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        height=360,
+        height=300,
         margin=dict(l=40, r=20, t=30, b=40),
         annotations=[dict(
             text="Ni razpoložljivih podatkov.",
             x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False,
             font=dict(family="DM Sans, system-ui, sans-serif",
-                      color="#76829a", size=14),
+                      color="#7c8ba6", size=14),
         )],
         meta={"base_shape_count": 0},
     )
@@ -394,16 +395,16 @@ def _build_trend_figure_base(
     fig.add_trace(go.Scatter(
         x=sub["date"], y=sub["band_low"],
         mode="lines", line=dict(width=0),
-        fill="tonexty", fillcolor="rgba(79,125,140,0.12)",
+        fill="tonexty", fillcolor="rgba(99,224,255,0.10)",
         name="min–max", hoverinfo="skip", showlegend=False,
     ))
     fig.add_trace(go.Scatter(
         x=sub["date"], y=sub["plot_value"],
         mode="lines+markers",
-        line=dict(color="#4f7d8c", width=2.4,
+        line=dict(color="#63e0ff", width=2.4,
                   shape="spline", smoothing=0.5),
-        marker=dict(size=5, color="#4f7d8c",
-                    line=dict(color="#ffffff", width=1)),
+        marker=dict(size=5, color="#63e0ff",
+                    line=dict(color="#0a1120", width=1)),
         name="povprečje",
         hovertemplate=(
             "<b>%{x}</b><br>"
@@ -418,26 +419,26 @@ def _build_trend_figure_base(
             if es == ee:
                 fig.add_vline(
                     x=es,
-                    line=dict(color="#d96a3a", width=2),
+                    line=dict(color="#ff7a5a", width=2),
                 )
                 fig.add_annotation(
                     x=es, y=1, yref="paper", showarrow=False,
-                    text="Dan dogodka", yanchor="bottom",
-                    font=dict(family="Manrope, system-ui, sans-serif",
-                              color="#d96a3a", size=11),
+                    text="DAN DOGODKA", yanchor="bottom",
+                    font=dict(family="JetBrains Mono, monospace",
+                              color="#ff7a5a", size=10),
                 )
             else:
                 fig.add_vrect(
                     x0=es, x1=ee,
-                    fillcolor="rgba(217,106,58,0.12)",
+                    fillcolor="rgba(255,122,90,0.14)",
                     line=dict(width=0),
                 )
                 fig.add_annotation(
                     x=es, y=1, yref="paper", showarrow=False,
-                    text="Obdobje dogodka", yanchor="bottom",
+                    text="OBDOBJE DOGODKA", yanchor="bottom",
                     xanchor="left",
-                    font=dict(family="Manrope, system-ui, sans-serif",
-                              color="#d96a3a", size=11),
+                    font=dict(family="JetBrains Mono, monospace",
+                              color="#ff7a5a", size=10),
                 )
 
     # Count baseline shapes so the JS day-marker handler knows where to
@@ -446,42 +447,42 @@ def _build_trend_figure_base(
 
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(245,247,251,0.6)",
+        plot_bgcolor="rgba(0,0,0,0)",
         title=dict(
-            text=title,
-            font=dict(family="Manrope, system-ui, sans-serif",
-                      color="#1a2540", size=14),
-            x=0.01, y=0.96,
+            text=title.upper(),
+            font=dict(family="JetBrains Mono, monospace",
+                      color="#9fb0d0", size=11),
+            x=0.01, y=0.97,
         ),
         xaxis=dict(
             title=None,
-            gridcolor="rgba(20,35,70,0.06)",
-            zerolinecolor="rgba(20,35,70,0.12)",
-            linecolor="rgba(20,35,70,0.15)",
+            gridcolor="rgba(160,200,255,0.06)",
+            zerolinecolor="rgba(160,200,255,0.12)",
+            linecolor="rgba(160,200,255,0.18)",
             tickfont=dict(family="DM Sans, system-ui, sans-serif",
-                          color="#4a5870", size=11),
+                          color="#9fb0d0", size=11),
             showline=True,
             tickangle=-45,
         ),
         yaxis=dict(
             title=dict(text=y_title,
                        font=dict(family="DM Sans, system-ui, sans-serif",
-                                 color="#4a5870", size=11)),
-            gridcolor="rgba(20,35,70,0.06)",
-            zerolinecolor="rgba(20,35,70,0.12)",
-            linecolor="rgba(79,125,140,0.30)",
+                                 color="#9fb0d0", size=11)),
+            gridcolor="rgba(160,200,255,0.06)",
+            zerolinecolor="rgba(160,200,255,0.12)",
+            linecolor="rgba(99,224,255,0.30)",
             tickfont=dict(family="JetBrains Mono, monospace",
-                          color="#4a5870", size=10),
+                          color="#9fb0d0", size=10),
             showline=True,
         ),
-        font=dict(family="DM Sans, system-ui, sans-serif", color="#4a5870"),
-        height=360,
-        margin=dict(l=60, r=20, t=50, b=70),
+        font=dict(family="DM Sans, system-ui, sans-serif", color="#c8d4ec"),
+        height=300,
+        margin=dict(l=60, r=20, t=46, b=60),
         hoverlabel=dict(
-            bgcolor="rgba(255,255,255,0.97)",
-            bordercolor="rgba(79,125,140,0.40)",
+            bgcolor="rgba(10,17,32,0.95)",
+            bordercolor="rgba(99,224,255,0.45)",
             font=dict(family="DM Sans, system-ui, sans-serif",
-                      color="#1a2540", size=12),
+                      color="#e7eefb", size=12),
         ),
         showlegend=False,
         meta={"base_shape_count": base_shape_count},
@@ -743,36 +744,21 @@ def _pollutant_choice_label(pollutant: str) -> ui.Tag:
 
 
 def _event_card_label(event: dict, index: int) -> ui.Tag:
-    """Render a single case-study card used as the label of a radio input.
+    """Render a compact mission chip used as the label of a radio input.
 
-    The radio input itself is hidden by CSS; clicking anywhere on this card
-    selects the event.
+    The radio input itself is hidden by CSS; clicking anywhere on this chip
+    selects the event. The chip stays small enough to fit in the top
+    mission-control header without crowding the map.
     """
     copy = _event_copy(event)
-    when = _slovene_window(event)
-    where = event.get("event_location_name") or ""
-    # Trim "long location" for readability — keep up to the first comma.
-    where_short = where.split(",")[0] if where else ""
     code = f"M-{index:02d}"
-
     return ui.tags.span(
-        ui.div(
-            ui.div(
-                ui.span(code, class_="ev-code"),
-                ui.span(copy["type"], class_="type-tag"),
-                ui.span("✓ Aktivno", class_="selected-indicator"),
-                class_="type-row",
-            ),
-            ui.div(copy["title"], class_="ev-title"),
-            ui.div(copy["desc"], class_="ev-desc"),
-            ui.div(
-                ui.div(when, class_="when") if when else "",
-                ui.div(where_short, class_="where") if where_short else "",
-                class_="ev-foot",
-            ),
-            ui.span(class_="ev-corner"),
-            class_="aw-event-card",
-        )
+        ui.tags.span(
+            ui.tags.span(code, class_="aw-mchip-code"),
+            ui.tags.span(copy["title"], class_="aw-mchip-title"),
+            ui.tags.span(copy["type"], class_="aw-mchip-type"),
+            class_="aw-mchip",
+        ),
     )
 
 
@@ -839,189 +825,133 @@ app_ui = ui.page_fluid(
             rel="stylesheet",
             href=(
                 "https://fonts.googleapis.com/css2?"
-                "family=Manrope:wght@400;500;600;700&"
+                "family=Manrope:wght@400;500;600;700;800&"
                 "family=DM+Sans:wght@400;500;600;700&"
-                "family=JetBrains+Mono:wght@400;500;600&display=swap"
+                "family=JetBrains+Mono:wght@400;500;600;700&display=swap"
             ),
         ),
         ui.tags.link(rel="stylesheet", href="styles.css"),
         ui.tags.script(src="app.js", defer="defer"),
     ),
 
-    # ----- APP SHELL -------------------------------------------------------
-    ui.div(  # aw-shell — sidebar + main grid
+    # ----- APP SHELL — map-first command center, no sidebar ----------------
+    ui.div(
 
-        # ===== SIDEBAR ====================================================
-        ui.tags.aside(
+        # ===== STATUS BANNER (only renders if data missing) ===============
+        ui.output_ui("status_banner"),
+
+        # ===== 1. MISSION-CONTROL TOP HEADER ==============================
+        ui.tags.header(
+            # left: brand block
             ui.div(
-                ui.div(
-                    ui.tags.span(
-                        # Inline cloud icon — kept small so it doesn't depend on an asset
-                        ui.HTML(
-                            "<svg width='28' height='28' viewBox='0 0 24 24' "
-                            "fill='none' stroke='currentColor' stroke-width='1.8' "
-                            "stroke-linecap='round' stroke-linejoin='round'>"
-                            "<path d='M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z'/>"
-                            "</svg>"
-                        ),
-                        class_="aw-sb-logo-icon",
+                ui.tags.span(
+                    ui.HTML(
+                        "<svg width='22' height='22' viewBox='0 0 24 24' "
+                        "fill='none' stroke='currentColor' stroke-width='1.7' "
+                        "stroke-linecap='round' stroke-linejoin='round'>"
+                        "<circle cx='12' cy='12' r='9'/>"
+                        "<path d='M3 12h18'/>"
+                        "<path d='M12 3a13 13 0 0 1 0 18'/>"
+                        "<path d='M12 3a13 13 0 0 0 0 18'/>"
+                        "</svg>"
                     ),
-                    ui.tags.span("AirWatch SLO", class_="aw-sb-logo-text"),
-                    class_="aw-sb-logo",
+                    class_="aw-brand-mark",
                 ),
                 ui.div(
-                    "Satelitsko spremljanje kakovosti zraka nad Slovenijo",
-                    class_="aw-sb-tagline",
+                    ui.div("AIRWATCH", class_="aw-brand-1"),
+                    ui.div("Geo·Slovenija", class_="aw-brand-2"),
                 ),
-                class_="aw-sb-brand",
+                class_="aw-brand",
             ),
-            ui.tags.nav(
-                ui.tags.a("Pregled", href="#aw-overview",
-                          class_="aw-sb-nav-item active"),
-                ui.tags.a("Časovnica", href="#aw-timeline",
-                          class_="aw-sb-nav-item"),
-                ui.tags.a("Zgodovinski trend", href="#aw-trend",
-                          class_="aw-sb-nav-item"),
-                ui.tags.a("Primerjava regij", href="#aw-bottom",
-                          class_="aw-sb-nav-item"),
-                ui.tags.a("Metodologija", href="#aw-method",
-                          class_="aw-sb-nav-item"),
-                ui.tags.a("O projektu", href="#aw-method",
-                          class_="aw-sb-nav-item"),
-                class_="aw-sb-nav",
-            ),
+
+            # center: mission + pollutant chip rails
             ui.div(
                 ui.div(
-                    ui.span(class_="aw-sb-status-dot"),
+                    ui.div("MISIJA", class_="aw-rail-label"),
                     ui.div(
-                        ui.div("Podatki posodobljeni",
-                               class_="aw-sb-status-label"),
-                        ui.output_ui("sidebar_updated_at", inline=True),
+                        ui.input_radio_buttons(
+                            "event_id",
+                            None,
+                            choices=_EVENT_CHOICES or {"": "Ni dogodkov"},
+                            selected=_DEFAULT_EVENT_ID,
+                            inline=True,
+                        ),
+                        class_="aw-event-rail",
                     ),
-                    class_="aw-sb-status",
+                    class_="aw-rail aw-rail-event",
                 ),
-                ui.output_ui("sidebar_dataset_badge"),
                 ui.div(
-                    ui.div("Copernicus",
-                           class_="aw-sb-brandline-main"),
-                    ui.div("sentinel-5p · ESA",
-                           class_="aw-sb-brandline-sub"),
-                    class_="aw-sb-brandline",
+                    ui.div("ONESNAŽEVALO", class_="aw-rail-label"),
+                    ui.div(
+                        ui.input_radio_buttons(
+                            "pollutant",
+                            None,
+                            choices={"NO2": _pollutant_choice_label("NO2")},
+                            selected="NO2",
+                            inline=True,
+                        ),
+                        class_="aw-pollutant-rail",
+                    ),
+                    class_="aw-rail aw-rail-pollutant",
                 ),
-                class_="aw-sb-footer",
+                class_="aw-header-center",
             ),
-            class_="aw-sidebar",
-        ),
 
-        # ===== MAIN CONTENT ===============================================
-        ui.div(
-
-        # ===== 1. HEADER ==================================================
-        ui.div(
+            # right: status badges
             ui.div(
-                ui.tags.h1(
-                    "Pregled ",
-                    ui.span("NO₂", class_="accent"),
-                    " po regijah",
-                ),
-                ui.tags.p(
-                    "Satelitsko spremljanje kakovosti zraka nad Slovenijo. "
-                    "Izberi primer in se pomikaj po dnevih, da vidiš, kako "
-                    "se je spreminjala koncentracija.",
-                    class_="subtitle",
-                ),
-                class_="aw-hero-text",
-            ),
-            ui.div(
-                ui.output_ui("hero_date_pill"),
+                ui.output_ui("hero_status_badge"),
                 ui.span(
                     ui.HTML(
-                        "<svg width='14' height='14' viewBox='0 0 24 24' "
+                        "<svg width='12' height='12' viewBox='0 0 24 24' "
                         "fill='none' stroke='currentColor' stroke-width='1.8' "
                         "stroke-linecap='round' stroke-linejoin='round'>"
                         "<polyline points='3 7 12 13 21 7'/>"
                         "<rect x='3' y='5' width='18' height='14' rx='2'/>"
                         "</svg>"
                     ),
-                    "Sentinel-5P · ESA Copernicus",
+                    "Sentinel-5P · ESA",
                     class_="aw-badge signal",
                 ),
-                ui.output_ui("hero_status_badge"),
-                class_="aw-hero-badges",
+                class_="aw-header-right",
             ),
-            class_="aw-hero",
+
+            class_="aw-top-header",
             id="aw-overview",
         ),
 
-        # ===== 2. CASE-STUDY SELECTOR =====================================
-        ui.div(
+        # ===== 2. MAIN MAP STAGE ==========================================
+        ui.tags.main(
             ui.div(
-                ui.div(
-                    ui.span("01 — Izbor scenarija", class_="aw-section-label"),
-                    ui.span("3 misije · Sentinel-5P", class_="aw-section-meta"),
-                    class_="aw-section-label-row",
-                ),
-                ui.h2("Izberi primer za prikaz", class_="aw-section-title"),
-                ui.div(
-                    "Vsak primer prikazuje meritve satelita Sentinel-5P "
-                    "za en mesec, ki vsebuje pomemben dogodek.",
-                    class_="aw-section-hint",
-                ),
-            ),
-            ui.div(
-                ui.input_radio_buttons(
-                    "event_id",
-                    None,
-                    choices=_EVENT_CHOICES or {"": "Ni dogodkov"},
-                    selected=_DEFAULT_EVENT_ID,
-                    inline=True,
-                ),
-                class_="aw-events-wrap",
-            ),
-            class_="aw-events-section",
-        ),
 
-        # ===== 2.5. POLLUTANT SELECTOR ====================================
-        ui.div(
-            ui.div(
-                ui.div("Onesnaževalo za prikaz", class_="aw-card-title"),
+                # ---- Map canvas with floating overlays -------------------
                 ui.div(
-                    ui.output_text("pollutant_subtitle", inline=True),
-                    class_="aw-card-subtitle",
-                ),
-                ui.div(
-                    ui.input_radio_buttons(
-                        "pollutant",
-                        None,
-                        choices={"NO2": _pollutant_choice_label("NO2")},
-                        selected="NO2",
-                        inline=True,
-                    ),
-                    class_="aw-pollutant-toggle",
-                ),
-                class_="aw-card",
-            ),
-            class_="aw-pollutant-section",
-        ),
+                    # subtle grid + noise overlay
+                    ui.span(class_="aw-grid-overlay"),
+                    # decorative corner brackets
+                    ui.span(class_="aw-corner tl"),
+                    ui.span(class_="aw-corner tr"),
+                    ui.span(class_="aw-corner bl"),
+                    ui.span(class_="aw-corner br"),
 
-        # ===== 3. MAIN GRID: map (with embedded timeline) + side =========
-        ui.div(
-            # --- Map column ---
-            ui.div(
-                ui.div(
+                    # actual Plotly mapbox widget
+                    output_widget("map_plot"),
+
+                    # ---- Overlay TL: mission heading + mode toggle ----
                     ui.div(
                         ui.div(
-                            ui.output_text("map_title", inline=True),
-                            class_="title",
+                            ui.span("SCAN", class_="aw-ov-tag"),
+                            ui.div(
+                                ui.output_text("map_title", inline=True),
+                                class_="aw-ov-title",
+                            ),
+                            ui.div(
+                                ui.output_text("map_subtitle", inline=True),
+                                class_="aw-ov-sub",
+                            ),
+                            class_="aw-ov-head",
                         ),
                         ui.div(
-                            ui.output_text("map_subtitle", inline=True),
-                            class_="sub",
-                        ),
-                        class_="left",
-                    ),
-                    ui.div(
-                        ui.div(
+                            ui.div("NAČIN PRIKAZA", class_="aw-ov-mini-label"),
                             ui.input_radio_buttons(
                                 "display_mode",
                                 None,
@@ -1034,80 +964,144 @@ app_ui = ui.page_fluid(
                             ),
                             class_="aw-mode-toggle",
                         ),
-                        class_="right",
+                        class_="aw-overlay aw-overlay-tl",
                     ),
-                    class_="aw-map-toolbar",
-                ),
-                ui.div(
-                    # Friendly help bubble — explains what the user is looking at
+
+                    # ---- Overlay TR: telemetry strip ----
                     ui.div(
-                        ui.span("i", class_="icon"),
-                        ui.span(
-                            "Bolj rdeča regija = višja koncentracija NO₂ tisti dan. "
-                            "Sivkasto pomeni, da satelit ni izmeril zanesljivih podatkov.",
-                        ),
-                        class_="aw-map-help",
-                    ),
-                    # legend
-                    ui.div(
-                        ui.div("Koncentracija NO₂ v ozračju",
-                               class_="legend-title"),
-                        ui.div("nižja → višja", class_="legend-sub"),
-                        ui.span(class_="ramp"),
                         ui.div(
-                            ui.span("manj"),
-                            ui.span("srednje"),
-                            ui.span("več"),
-                            class_="ramp-labels",
-                        ),
-                        class_="aw-map-overlay",
-                    ),
-                    # Coordinate readout (decorative — fixed at Slovenia's centroid)
-                    ui.div(
-                        ui.span("LAT", class_="k"),
-                        ui.span("46.15° N", class_="v"),
-                        ui.span("LON", class_="k"),
-                        ui.span("14.99° E", class_="v"),
-                        ui.span("CRS", class_="k"),
-                        ui.span("EPSG:4326", class_="v"),
-                        class_="aw-map-coords",
-                    ),
-                    # Decorative corner brackets — render at the four corners
-                    ui.span(class_="aw-corner tl"),
-                    ui.span(class_="aw-corner tr"),
-                    ui.span(class_="aw-corner bl"),
-                    ui.span(class_="aw-corner br"),
-                    output_widget("map_plot"),
-                    class_="aw-map-wrap",
-                ),
-                # ---- Embedded timeline strip ----
-                ui.div(
-                    ui.div(
-                        ui.tags.button(
-                            ui.tags.span(class_="play-icon"),
-                            ui.tags.span("Predvajaj", class_="play-label"),
-                            id="aw-play-toggle",
-                            type="button",
-                            class_="aw-play-btn",
-                            **{"aria-label": "Predvajaj animacijo skozi mesec"},
-                        ),
-                        ui.div(
-                            ui.div("Trenutni dan", class_="aw-tl-meta-label"),
-                            ui.div(
-                                ui.output_text("selected_date_display", inline=True),
-                                class_="aw-tl-meta-value",
+                            ui.span("TELEMETRIJA", class_="aw-ov-tag"),
+                            ui.span(
+                                ui.output_text("selected_date_compact", inline=True),
+                                class_="aw-ov-mini-date",
                             ),
-                            class_="aw-tl-meta",
+                            class_="aw-ov-head",
                         ),
                         ui.div(
-                            ui.div("Razpon", class_="aw-tl-meta-label"),
                             ui.div(
-                                ui.output_ui("day_counter_display", inline=True),
-                                class_="aw-tl-meta-value",
+                                ui.div("Povprečje SLO", class_="aw-tel-label"),
+                                ui.output_ui("t_slovenia_avg", inline=True),
+                                class_="aw-tel-cell aw-tel-primary",
                             ),
-                            class_="aw-tl-meta",
+                            ui.div(
+                                ui.div("Najvišja", class_="aw-tel-label"),
+                                ui.output_ui("t_highest", inline=True),
+                                class_="aw-tel-cell aw-tel-alert",
+                            ),
+                            ui.div(
+                                ui.div("Najnižja", class_="aw-tel-label"),
+                                ui.output_ui("t_lowest", inline=True),
+                                class_="aw-tel-cell aw-tel-cool",
+                            ),
+                            ui.div(
+                                ui.div("Regije", class_="aw-tel-label"),
+                                ui.output_ui("t_valid", inline=True),
+                                class_="aw-tel-cell",
+                            ),
+                            ui.div(
+                                ui.div("Kakovost", class_="aw-tel-label"),
+                                ui.output_ui("t_quality", inline=True),
+                                class_="aw-tel-cell aw-tel-warn",
+                            ),
+                            class_="aw-tel-grid",
                         ),
-                        class_="aw-tl-head",
+                        class_="aw-overlay aw-overlay-tr",
+                    ),
+
+                    # ---- Overlay BL: region intel ----
+                    ui.div(
+                        ui.div(
+                            ui.span("INTEL", class_="aw-ov-tag"),
+                            ui.div("Izbrana regija", class_="aw-ov-title-sm"),
+                            class_="aw-ov-head",
+                        ),
+                        ui.input_select(
+                            "region_code",
+                            None,
+                            choices={"": "Vse regije (povprečje Slovenije)"},
+                            selected="",
+                        ),
+                        ui.output_ui("region_detail"),
+                        class_="aw-overlay aw-overlay-bl",
+                    ),
+
+                    # ---- Overlay BR: color legend + quality legend ----
+                    ui.div(
+                        ui.div(
+                            ui.span("LEGENDA", class_="aw-ov-tag"),
+                            class_="aw-ov-head",
+                        ),
+                        # Color ramp (low → high)
+                        ui.div(
+                            ui.div("Koncentracija", class_="aw-leg-title"),
+                            ui.span(class_="aw-leg-ramp"),
+                            ui.div(
+                                ui.span("nizka"),
+                                ui.span("srednja"),
+                                ui.span("visoka"),
+                                class_="aw-leg-labels",
+                            ),
+                            class_="aw-leg-color",
+                        ),
+                        # Quality legend
+                        ui.div(
+                            ui.div("Kakovost meritve", class_="aw-leg-title"),
+                            ui.div(
+                                ui.span(class_="aw-qpip good"),
+                                ui.span("dobra"),
+                                class_="aw-qrow",
+                            ),
+                            ui.div(
+                                ui.span(class_="aw-qpip partial"),
+                                ui.span("delna"),
+                                class_="aw-qrow",
+                            ),
+                            ui.div(
+                                ui.span(class_="aw-qpip missing"),
+                                ui.span("ni podatkov"),
+                                class_="aw-qrow",
+                            ),
+                            class_="aw-leg-quality",
+                        ),
+                        # Decorative coords readout
+                        ui.div(
+                            ui.span("CRS", class_="k"),
+                            ui.span("EPSG:4326", class_="v"),
+                            ui.span("·", class_="dot"),
+                            ui.span("46.15° N · 14.99° E", class_="v"),
+                            class_="aw-leg-coords",
+                        ),
+                        class_="aw-overlay aw-overlay-br",
+                    ),
+                    class_="aw-map-canvas",
+                    id="aw-map",
+                ),
+
+                # ---- Day timeline dock (under map) -----------------------
+                ui.div(
+                    ui.tags.button(
+                        ui.tags.span(class_="play-icon"),
+                        ui.tags.span("Predvajaj", class_="play-label"),
+                        id="aw-play-toggle",
+                        type="button",
+                        class_="aw-play-btn",
+                        **{"aria-label": "Predvajaj animacijo skozi mesec"},
+                    ),
+                    ui.div(
+                        ui.div("DATUM", class_="aw-tl-meta-label"),
+                        ui.div(
+                            ui.output_text("selected_date_display", inline=True),
+                            class_="aw-tl-meta-value",
+                        ),
+                        class_="aw-tl-meta",
+                    ),
+                    ui.div(
+                        ui.div("RAZPON", class_="aw-tl-meta-label"),
+                        ui.div(
+                            ui.output_ui("day_counter_display", inline=True),
+                            class_="aw-tl-meta-value",
+                        ),
+                        class_="aw-tl-meta",
                     ),
                     ui.div(
                         ui.output_ui("event_window_overlay"),
@@ -1122,70 +1116,26 @@ app_ui = ui.page_fluid(
                         ),
                         class_="aw-slider-stage",
                     ),
-                    class_="aw-map-timeline",
+                    class_="aw-timeline-dock",
                     id="aw-timeline",
                 ),
-                class_="aw-map-card",
-            ),
 
-            # --- Side column ---
-            ui.div(
-                # Summary stats
-                ui.div(
-                    ui.div("Pregled za izbrani dan", class_="aw-card-title"),
-                    ui.div(
-                        "Hitre številke za vse slovenske statistične regije.",
-                        class_="aw-card-subtitle",
-                    ),
-                    ui.div(
-                        _stat_cell("t_slovenia_avg",
-                                   "Povprečje Slovenije",
-                                   large=True),
-                        _stat_cell("t_highest",
-                                   "Najbolj onesnažena regija",
-                                   modifier="alert"),
-                        _stat_cell("t_lowest",
-                                   "Najmanj onesnažena regija",
-                                   modifier="cool"),
-                        _stat_cell("t_valid",
-                                   "Regije s podatki"),
-                        _stat_cell("t_quality",
-                                   "Kakovost meritev",
-                                   modifier="warn"),
-                        class_="aw-summary-grid",
-                    ),
-                    class_="aw-card",
-                ),
-                # Region focus
-                ui.div(
-                    ui.div("Podrobnosti regije", class_="aw-card-title"),
-                    ui.div(
-                        "Izberi regijo, da vidiš njeno vrednost in primerjavo "
-                        "s povprečjem meseca.",
-                        class_="aw-card-subtitle",
-                    ),
-                    ui.input_select(
-                        "region_code",
-                        None,
-                        choices={"": "Vse regije (povprečje Slovenije)"},
-                        selected="",
-                    ),
-                    ui.output_ui("region_detail"),
-                    class_="aw-card aw-region-detail",
-                ),
-                class_="aw-side",
+                class_="aw-stage",
             ),
-            class_="aw-main-grid",
+            class_="aw-main",
         ),
 
-        # ===== 5. TREND CHART =============================================
+        # ===== 3. TREND SECTION (below the map) ===========================
         ui.tags.section(
-            ui.span("03 — Telemetrija skozi čas", class_="aw-kicker"),
-            ui.div("Trend skozi mesec", class_="aw-card-title"),
             ui.div(
-                "Senčen pas prikazuje razpon med najnižjo in najvišjo "
-                "dnevno meritvijo. Oranžno označen je čas dogodka.",
-                class_="aw-card-subtitle",
+                ui.span("02", class_="aw-sec-num"),
+                ui.div("Trend skozi mesec", class_="aw-sec-title"),
+                ui.div(
+                    "Cyan črta je dnevno povprečje, senčni pas je razpon "
+                    "min–max. Oranžno označen je čas dogodka.",
+                    class_="aw-sec-sub",
+                ),
+                class_="aw-sec-head",
             ),
             ui.div(
                 ui.span(class_="aw-corner tl"),
@@ -1195,82 +1145,50 @@ app_ui = ui.page_fluid(
                 output_widget("trend_plot"),
                 class_="aw-trend-wrap",
             ),
-            class_="aw-card aw-card-trend",
+            class_="aw-trend-section",
             id="aw-trend",
         ),
 
-        # ===== 6. BOTTOM: methodology + quality legend ====================
+        # ===== 4. METHODOLOGY + EVENT META ================================
         ui.div(
             ui.div(
-                ui.div("Kaj prikazuje ta nadzorna plošča",
-                       class_="aw-card-title"),
                 ui.div(
-                    "Preberi pred razlago — pomaga razumeti, kaj številke "
-                    "pomenijo in kaj ne.",
-                    class_="aw-card-subtitle",
+                    ui.span("03", class_="aw-sec-num"),
+                    ui.div("Kaj prikazuje ta nadzorna plošča",
+                           class_="aw-sec-title"),
+                    ui.div(
+                        "Preberi pred razlago — pomaga razumeti, kaj številke "
+                        "pomenijo in kaj ne.",
+                        class_="aw-sec-sub",
+                    ),
+                    class_="aw-sec-head",
                 ),
                 ui.output_ui("methodology_block"),
-                class_="aw-card",
+                class_="aw-panel",
             ),
             ui.div(
-                ui.div("Kakovost meritve", class_="aw-card-title"),
                 ui.div(
-                    "Satelit ne izmeri vsakega dne enako zanesljivo — oblaki "
-                    "in kotni pregled lahko meritev poslabšajo.",
-                    class_="aw-card-subtitle",
-                ),
-                ui.div(
+                    ui.span("04", class_="aw-sec-num"),
+                    ui.div("Metapodatki misije", class_="aw-sec-title"),
                     ui.div(
-                        ui.span(class_="indicator"),
-                        ui.div(
-                            ui.div("Dobra meritev", class_="name"),
-                            ui.div("Podatkom lahko zaupaš.",
-                                   class_="desc"),
-                        ),
-                        class_="aw-quality-item good",
+                        ui.output_text("pollutant_subtitle", inline=True),
+                        class_="aw-sec-sub",
                     ),
-                    ui.div(
-                        ui.span(class_="indicator"),
-                        ui.div(
-                            ui.div("Delna meritev", class_="name"),
-                            ui.div(
-                                "Del območja ni bil pokrit ali je bila "
-                                "kakovost slabša.",
-                                class_="desc",
-                            ),
-                        ),
-                        class_="aw-quality-item partial",
-                    ),
-                    ui.div(
-                        ui.span(class_="indicator"),
-                        ui.div(
-                            ui.div("Ni podatkov", class_="name"),
-                            ui.div(
-                                "Satelit tisti dan nad regijo ni opravil "
-                                "zanesljive meritve.",
-                                class_="desc",
-                            ),
-                        ),
-                        class_="aw-quality-item missing",
-                    ),
-                    class_="aw-quality-legend",
+                    class_="aw-sec-head",
                 ),
                 ui.output_ui("event_metadata_summary"),
-                class_="aw-card",
+                class_="aw-panel",
             ),
-            class_="aw-bottom-grid",
+            class_="aw-method-grid",
             id="aw-method",
         ),
 
-        # ===== 7. STATUS FOOTER (replaces mission log) ====================
+        # ===== 5. STATUS FOOTER (plain-language mission log) ==============
         ui.div(
             ui.span("›", class_="icon"),
             ui.output_ui("mission_log", inline=True),
             class_="aw-status",
         ),
-
-        # ===== STATUS BANNER (only shows if data missing) =================
-        ui.output_ui("status_banner"),
 
         # ===== APP FOOTER =================================================
         ui.div(
@@ -1279,16 +1197,16 @@ app_ui = ui.page_fluid(
                 ui.output_ui("footer_year", inline=True),
             ),
             ui.span("·", class_="aw-footer-sep"),
+            ui.span("Sentinel-5P · ESA Copernicus"),
+            ui.span("·", class_="aw-footer-sep"),
             ui.span(
-                "Univerza v Ljubljani — Fakulteta za računalništvo in informatiko"
+                "Univerza v Ljubljani — Fakulteta za računalništvo "
+                "in informatiko"
             ),
             class_="aw-footer",
         ),
 
         class_="aw-app",
-        ),
-
-        class_="aw-shell",
     ),
 )
 
@@ -1598,67 +1516,7 @@ def server(input, output, session):
             class_="aw-badge sample",
         )
 
-    # -------- SIDEBAR + TOPBAR derived UI ---------------------------------
-
-    @output
-    @render.ui
-    def hero_date_pill():
-        ds = current_date_str()
-        label = _slovene_date(ds) if ds else "—"
-        return ui.span(
-            ui.HTML(
-                "<svg width='14' height='14' viewBox='0 0 24 24' "
-                "fill='none' stroke='currentColor' stroke-width='1.8' "
-                "stroke-linecap='round' stroke-linejoin='round'>"
-                "<rect x='3' y='4' width='18' height='17' rx='2'/>"
-                "<line x1='16' y1='2' x2='16' y2='6'/>"
-                "<line x1='8'  y1='2' x2='8'  y2='6'/>"
-                "<line x1='3' y1='10' x2='21' y2='10'/>"
-                "</svg>"
-            ),
-            label,
-            class_="aw-badge date",
-        )
-
-    @output
-    @render.ui
-    def sidebar_updated_at():
-        meta = metadata() or {}
-        gen = meta.get("generated_at") or ""
-        try:
-            dt = pd.to_datetime(gen)
-            label = _slovene_date(dt.strftime("%Y-%m-%d"))
-            label = f"{label}, {dt.strftime('%H:%M')}"
-        except (ValueError, TypeError):
-            label = gen or "—"
-        return ui.div(label, class_="aw-sb-status-value")
-
-    @output
-    @render.ui
-    def sidebar_dataset_badge():
-        meta = metadata() or {}
-        status = (meta.get("dataset_status") or "unknown").lower()
-        if status == "live":
-            label = "Stanje sistema: v živo"
-            cls = "aw-sb-state live"
-        elif status == "sample":
-            label = "Stanje sistema: vzorec"
-            cls = "aw-sb-state sample"
-        else:
-            label = "Stanje sistema: neznano"
-            cls = "aw-sb-state"
-        return ui.tags.button(
-            ui.HTML(
-                "<svg width='14' height='14' viewBox='0 0 24 24' "
-                "fill='none' stroke='currentColor' stroke-width='1.8' "
-                "stroke-linecap='round' stroke-linejoin='round'>"
-                "<path d='M12 2l8 4v6c0 5-3.4 9.3-8 10-4.6-.7-8-5-8-10V6l8-4z'/>"
-                "</svg>"
-            ),
-            ui.span(label),
-            type="button",
-            class_=cls,
-        )
+    # -------- HEADER + STATUS derived UI ----------------------------------
 
     @output
     @render.ui
@@ -1685,6 +1543,20 @@ def server(input, output, session):
     def selected_date_display():
         d = current_date_str()
         return _slovene_date(d) if d else "—"
+
+    @output
+    @render.text
+    def selected_date_compact():
+        """Short date shown in the floating telemetry overlay (e.g. '14. dec'). """
+        d = current_date_str()
+        if not d:
+            return "—"
+        try:
+            dd = pd.to_datetime(d)
+            month_short = SLO_MONTHS[dd.month][:3]
+            return f"{dd.day}. {month_short} {dd.year}"
+        except (ValueError, TypeError):
+            return d
 
     @output
     @render.ui
@@ -1768,20 +1640,20 @@ def server(input, output, session):
         # Empty-state map
         if not _REGIONS_GEOJSON.get("features"):
             fig.update_layout(
-                paper_bgcolor="#f0f3f8",
-                plot_bgcolor="#f0f3f8",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
                 mapbox=dict(
-                    style="carto-positron",
+                    style="carto-darkmatter",
                     center=dict(lat=46.15, lon=14.99),
-                    zoom=6.6,
+                    zoom=7.0,
                 ),
                 margin=dict(l=0, r=0, t=0, b=0),
-                height=580,
+                height=680,
                 showlegend=False,
             )
             fig.add_annotation(
                 text="Ni razpoložljivih podatkov.",
-                font=dict(color="#76829a",
+                font=dict(color="#7c8ba6",
                           family="DM Sans, system-ui, sans-serif", size=14),
                 showarrow=False, x=0.5, y=0.5, xref="paper", yref="paper",
             )
@@ -1828,8 +1700,8 @@ def server(input, output, session):
                 colorscale=cscale,
                 zmin=zmin, zmax=zmax,
                 marker=dict(
-                    line=dict(color="rgba(20,35,70,0.30)", width=0.7),
-                    opacity=0.92,
+                    line=dict(color="rgba(220,230,255,0.55)", width=0.9),
+                    opacity=0.88,
                 ),
                 customdata=_map_value_customdata(wv) if not wv.empty else [],
                 hovertemplate=hovertemplate_val,
@@ -1837,18 +1709,18 @@ def server(input, output, session):
                     title=dict(
                         text=color_title,
                         font=dict(family="Manrope, system-ui, sans-serif",
-                                  color="#4a5870", size=11),
+                                  color="#c8d4ec", size=11),
                     ),
                     thickness=10,
                     len=0.55,
                     x=0.985,
-                    y=0.45,
-                    bgcolor="rgba(255,255,255,0.92)",
-                    bordercolor="rgba(20,35,70,0.10)",
+                    y=0.42,
+                    bgcolor="rgba(10,17,32,0.78)",
+                    bordercolor="rgba(160,200,255,0.18)",
                     borderwidth=1,
                     tickfont=dict(family="JetBrains Mono, monospace",
-                                  color="#4a5870", size=10),
-                    outlinecolor="rgba(20,35,70,0.10)",
+                                  color="#c8d4ec", size=10),
+                    outlinecolor="rgba(160,200,255,0.18)",
                     ticks="outside",
                 ),
                 name="",
@@ -1864,11 +1736,11 @@ def server(input, output, session):
                 locations=nv["region_code"].astype(str).tolist(),
                 z=[0.0] * len(nv),
                 featureidkey="properties.region_code",
-                colorscale=[[0, "rgba(200,210,225,0.55)"], [1, "rgba(200,210,225,0.55)"]],
+                colorscale=[[0, "rgba(120,135,165,0.30)"], [1, "rgba(120,135,165,0.30)"]],
                 showscale=False,
                 marker=dict(
-                    line=dict(color="rgba(20,35,70,0.20)", width=0.5),
-                    opacity=0.7,
+                    line=dict(color="rgba(200,215,240,0.35)", width=0.6),
+                    opacity=0.75,
                 ),
                 customdata=_map_no_data_customdata(nv) if not nv.empty else [],
                 hovertemplate=(
@@ -1882,43 +1754,52 @@ def server(input, output, session):
             )
         )
 
-        # ---- Layer 3: subtle highlight ring on selected region's centroid
+        # ---- Layer 3: strong highlight ring on selected region's centroid
         if selected_region and selected_region in _REGION_CENTROIDS:
             clat, clon = _REGION_CENTROIDS[selected_region]
+            # outer glow
             fig.add_trace(go.Scattermapbox(
                 lat=[clat], lon=[clon],
                 mode="markers",
-                marker=dict(size=38, color="rgba(79,125,140,0.22)"),
+                marker=dict(size=64, color="rgba(99,224,255,0.20)"),
                 hoverinfo="skip", showlegend=False,
             ))
+            # inner ring
             fig.add_trace(go.Scattermapbox(
                 lat=[clat], lon=[clon],
                 mode="markers",
-                marker=dict(size=14, color="#4f7d8c"),
+                marker=dict(size=22, color="rgba(99,224,255,0.95)"),
                 hoverinfo="skip", showlegend=False,
             ))
 
-        # ---- Layer 4: event location marker — orange/red dot with halo
+        # ---- Layer 4: event location marker — pulsing-style halo + core
         if ev and ev.get("event_lat") is not None and ev.get("event_lon") is not None:
             elat = ev["event_lat"]; elon = ev["event_lon"]
             label = ev.get("event_location_name") or ev.get("event_name") or "Lokacija dogodka"
             copy = _event_copy(ev)
-            # halo
+            # outer halo
             fig.add_trace(go.Scattermapbox(
                 lat=[elat], lon=[elon],
                 mode="markers",
-                marker=dict(size=44, color="rgba(208,74,82,0.18)"),
+                marker=dict(size=58, color="rgba(255,90,90,0.18)"),
+                hoverinfo="skip", showlegend=False,
+            ))
+            # middle halo
+            fig.add_trace(go.Scattermapbox(
+                lat=[elat], lon=[elon],
+                mode="markers",
+                marker=dict(size=32, color="rgba(255,90,90,0.32)"),
                 hoverinfo="skip", showlegend=False,
             ))
             # core marker
             fig.add_trace(go.Scattermapbox(
                 lat=[elat], lon=[elon],
                 mode="markers+text",
-                marker=dict(size=14, color="#d04a52"),
+                marker=dict(size=14, color="#ff5a5a"),
                 text=[copy["title"]],
                 textposition="top right",
                 textfont=dict(family="Manrope, system-ui, sans-serif",
-                              color="#8a2a30", size=12),
+                              color="#ffd6d6", size=12),
                 hovertemplate=(
                     f"<b>{copy['title']}</b><br>{label}<extra></extra>"
                 ),
@@ -1930,19 +1811,19 @@ def server(input, output, session):
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             mapbox=dict(
-                style="carto-positron",
+                style="carto-darkmatter",
                 center=dict(lat=46.15, lon=14.99),
-                zoom=6.6,
+                zoom=7.0,
             ),
             margin=dict(l=0, r=0, t=0, b=0),
-            height=560,
+            height=680,
             showlegend=False,
-            font=dict(family="DM Sans, system-ui, sans-serif", color="#4a5870"),
+            font=dict(family="DM Sans, system-ui, sans-serif", color="#c8d4ec"),
             hoverlabel=dict(
-                bgcolor="rgba(255,255,255,0.97)",
-                bordercolor="rgba(79,125,140,0.40)",
+                bgcolor="rgba(10,17,32,0.95)",
+                bordercolor="rgba(99,224,255,0.45)",
                 font=dict(family="DM Sans, system-ui, sans-serif",
-                          color="#1a2540", size=12),
+                          color="#e7eefb", size=12),
             ),
             transition=dict(duration=320, easing="cubic-in-out"),
         )
