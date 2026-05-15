@@ -6,6 +6,7 @@ Glavni pipeline je zdaj Sentinel Hub Statistical API pipeline:
 data_pipeline/sentinel_hub_stats/
 ```
 
+
 Ne temelji vec na rocni obdelavi velikih Sentinel-5P `.nc` datotek.
 
 ## 1. Regije

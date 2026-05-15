@@ -65,6 +65,33 @@ REGIONS_GEOJSON = (
 )
 EVENTS_JSON_FALLBACK = PROJECT_ROOT / "data_pipeline" / "events" / "events.json"
 
+# GeoSlovenija / eProstor context layers — local EPSG:4326 GeoJSON files.
+# All optional. The dashboard does NOT crash if a file is missing; instead
+# the matching layer toggle in the UI is rendered as disabled with the label
+# "Sloj ni naložen". See docs/geoslovenija_context_layers.md for details.
+CONTEXT_LAYERS_DIR = PROJECT_ROOT / "reference_data" / "context_layers"
+CONTEXT_LAYER_FILES: dict[str, Path] = {
+    "municipalities": CONTEXT_LAYERS_DIR / "eprostor_municipalities.geojson",
+    "transport":      CONTEXT_LAYERS_DIR / "eprostor_transport_infrastructure.geojson",
+    "industrial":     CONTEXT_LAYERS_DIR / "geopeskovnik_industrial_business_areas.geojson",
+}
+
+# Slovene labels and provenance shown in the floating context panel.
+CONTEXT_LAYER_META: dict[str, dict[str, str]] = {
+    "municipalities": {
+        "label": "Občine",
+        "source": "eProstor",
+    },
+    "transport": {
+        "label": "Prometna infrastruktura",
+        "source": "eProstor",
+    },
+    "industrial": {
+        "label": "Industrijska in poslovna območja",
+        "source": "geo-peskovnik",
+    },
+}
+
 NO2_UNIT = "µmol/m²"
 
 # Per-pollutant display spec used by the dashboard. Must stay in sync with
@@ -200,6 +227,202 @@ def load_regions_geojson(path: Path = REGIONS_GEOJSON) -> dict:
     return data
 
 
+def load_context_layer(path: Path) -> dict:
+    """Return raw GeoJSON dict for a context layer.
+
+    Gracefully returns an empty FeatureCollection if the file is missing or
+    cannot be parsed. The dashboard checks `len(features)` to decide whether
+    the matching toggle should be enabled or disabled.
+    """
+    if not path.exists():
+        return {"type": "FeatureCollection", "features": []}
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {"type": "FeatureCollection", "features": []}
+    if not isinstance(data, dict) or "features" not in data:
+        return {"type": "FeatureCollection", "features": []}
+    return data
+
+
+def load_context_layers() -> dict[str, dict]:
+    """Eager-load all expected context-layer GeoJSON files (or empty stubs)."""
+    return {key: load_context_layer(path) for key, path in CONTEXT_LAYER_FILES.items()}
+
+
+def _flatten_polygon_rings(geom: dict) -> list[list[tuple[float, float]]]:
+    """Return a list of (lon, lat) ring sequences for a Polygon/MultiPolygon."""
+    rings: list[list[tuple[float, float]]] = []
+    gtype = (geom or {}).get("type")
+    coords = (geom or {}).get("coordinates") or []
+    if gtype == "Polygon":
+        for ring in coords:
+            rings.append([(pt[0], pt[1]) for pt in ring if len(pt) >= 2])
+    elif gtype == "MultiPolygon":
+        for poly in coords:
+            for ring in poly:
+                rings.append([(pt[0], pt[1]) for pt in ring if len(pt) >= 2])
+    return rings
+
+
+def _flatten_line_paths(geom: dict) -> list[list[tuple[float, float]]]:
+    """Return a list of (lon, lat) sequences for LineString / MultiLineString."""
+    paths: list[list[tuple[float, float]]] = []
+    gtype = (geom or {}).get("type")
+    coords = (geom or {}).get("coordinates") or []
+    if gtype == "LineString":
+        paths.append([(pt[0], pt[1]) for pt in coords if len(pt) >= 2])
+    elif gtype == "MultiLineString":
+        for line in coords:
+            paths.append([(pt[0], pt[1]) for pt in line if len(pt) >= 2])
+    return paths
+
+
+def _geom_centroid(geom: dict) -> tuple[float, float] | None:
+    """Cheap centroid (mean of outer-ring vertices) for Point/Polygon/MultiPolygon."""
+    gtype = (geom or {}).get("type")
+    coords = (geom or {}).get("coordinates") or []
+    if gtype == "Point" and len(coords) >= 2:
+        return (float(coords[1]), float(coords[0]))  # (lat, lon)
+    rings = _flatten_polygon_rings(geom)
+    xs: list[float] = []
+    ys: list[float] = []
+    for ring in rings:
+        for x, y in ring:
+            xs.append(x); ys.append(y)
+    if not xs or not ys:
+        return None
+    return (sum(ys) / len(ys), sum(xs) / len(xs))
+
+
+# ---------------------------------------------------------------------------
+# Plotly trace builders for GeoSlovenija / eProstor context layers
+#
+# These draw on top of the NUTS3 choropleth as subtle context (thin outlines /
+# thin lines / semi-transparent fills). They never replace the choropleth and
+# never add fake pollution data — they are purely spatial reference.
+# ---------------------------------------------------------------------------
+
+
+def _add_polygon_outline_layer(
+    fig, geojson: dict, *, line_color: str, line_width: float, name: str,
+) -> None:
+    """Draw polygon/multipolygon outlines as a single Scattermapbox trace.
+
+    Used for municipalities (eProstor) — thin outlines only.
+    """
+    lats: list[float | None] = []
+    lons: list[float | None] = []
+    for feat in (geojson or {}).get("features", []):
+        for ring in _flatten_polygon_rings(feat.get("geometry") or {}):
+            for x, y in ring:
+                lons.append(x); lats.append(y)
+            # None separator splits sub-paths into discrete polylines.
+            lons.append(None); lats.append(None)
+    if not lats:
+        return
+    fig.add_trace(go.Scattermapbox(
+        lat=lats, lon=lons,
+        mode="lines",
+        line=dict(width=line_width, color=line_color),
+        name=name,
+        hoverinfo="skip",
+        showlegend=False,
+    ))
+
+
+def _add_line_layer(
+    fig, geojson: dict, *, line_color: str, line_width: float, name: str,
+) -> None:
+    """Draw LineString/MultiLineString features as a single Scattermapbox trace.
+
+    Used for transport infrastructure (eProstor) — thin lines for major
+    roads / railways.
+    """
+    lats: list[float | None] = []
+    lons: list[float | None] = []
+    for feat in (geojson or {}).get("features", []):
+        for path in _flatten_line_paths(feat.get("geometry") or {}):
+            for x, y in path:
+                lons.append(x); lats.append(y)
+            lons.append(None); lats.append(None)
+    if not lats:
+        return
+    fig.add_trace(go.Scattermapbox(
+        lat=lats, lon=lons,
+        mode="lines",
+        line=dict(width=line_width, color=line_color),
+        name=name,
+        hoverinfo="skip",
+        showlegend=False,
+    ))
+
+
+def _add_industrial_layer(
+    fig, geojson: dict, *, fill_color: str, line_color: str,
+    point_color: str, name: str,
+) -> None:
+    """Draw industrial / business areas (geo-peskovnik).
+
+    Polygons render as semi-transparent fills (outline only via Scattermapbox)
+    plus a centroid point so the area is also recognisable at low zoom.
+    Point features render as a single colored dot.
+    """
+    poly_lats: list[float | None] = []
+    poly_lons: list[float | None] = []
+    point_lats: list[float] = []
+    point_lons: list[float] = []
+    point_texts: list[str] = []
+    for feat in (geojson or {}).get("features", []):
+        geom = feat.get("geometry") or {}
+        props = feat.get("properties") or {}
+        title = (
+            props.get("ime")
+            or props.get("name")
+            or props.get("naziv")
+            or "Industrijska / poslovna cona"
+        )
+        gtype = geom.get("type")
+        if gtype in ("Polygon", "MultiPolygon"):
+            for ring in _flatten_polygon_rings(geom):
+                for x, y in ring:
+                    poly_lons.append(x); poly_lats.append(y)
+                poly_lons.append(None); poly_lats.append(None)
+            c = _geom_centroid(geom)
+            if c:
+                point_lats.append(c[0]); point_lons.append(c[1])
+                point_texts.append(str(title))
+        elif gtype == "Point":
+            c = _geom_centroid(geom)
+            if c:
+                point_lats.append(c[0]); point_lons.append(c[1])
+                point_texts.append(str(title))
+
+    if poly_lats:
+        fig.add_trace(go.Scattermapbox(
+            lat=poly_lats, lon=poly_lons,
+            mode="lines",
+            line=dict(width=1.2, color=line_color),
+            fill="toself",
+            fillcolor=fill_color,
+            name=name,
+            hoverinfo="skip",
+            showlegend=False,
+        ))
+
+    if point_lats:
+        fig.add_trace(go.Scattermapbox(
+            lat=point_lats, lon=point_lons,
+            mode="markers",
+            marker=dict(size=8, color=point_color),
+            text=point_texts,
+            name=name,
+            hovertemplate="<b>%{text}</b><br>Vir: geo-peskovnik<extra></extra>",
+            showlegend=False,
+        ))
+
+
 def build_event_choices(metadata: dict, df: pd.DataFrame) -> dict[str, str]:
     """Return {event_id: plain-text label} — back-compat helper for tests.
 
@@ -280,6 +503,29 @@ _INITIAL_METADATA = load_metadata()
 _EVENTS_FALLBACK = load_events_fallback()
 _REGIONS_GEOJSON = load_regions_geojson()
 _REGION_CENTROIDS = compute_region_centroids(_REGIONS_GEOJSON)
+
+# Eager-load optional GeoSlovenija / eProstor context layers. Missing files
+# return empty FeatureCollections so the UI stays robust.
+_CONTEXT_LAYERS: dict[str, dict] = load_context_layers()
+_CONTEXT_LAYER_AVAILABLE: dict[str, bool] = {
+    key: bool((_CONTEXT_LAYERS.get(key) or {}).get("features"))
+    for key in CONTEXT_LAYER_FILES
+}
+
+
+def _resolved_layer_source(layer_key: str) -> str:
+    """Source label to show in the UI pill.
+
+    Prefer FeatureCollection.properties.source from the loaded GeoJSON (so an
+    OSM-mirrored fallback can transparently say "OpenStreetMap (zrcalo
+    eProstor GJI)"). Fall back to the configured default.
+    """
+    fc = _CONTEXT_LAYERS.get(layer_key) or {}
+    props = fc.get("properties") or {}
+    src = props.get("source")
+    if isinstance(src, str) and src.strip():
+        return src.strip()
+    return CONTEXT_LAYER_META.get(layer_key, {}).get("source", "")
 
 
 def _resolve_events_list() -> list[dict]:
@@ -807,6 +1053,43 @@ def _stat_cell(card_id: str, label: str, *,
     )
 
 
+def _ctx_layer_row(input_id: str, layer_key: str) -> ui.Tag:
+    """Render one toggle row in the GeoSlovenija context panel.
+
+    When the matching GeoJSON file is missing on disk, the checkbox is
+    disabled and a "Sloj ni naložen" hint is shown instead of the data
+    source.
+    """
+    meta = CONTEXT_LAYER_META[layer_key]
+    available = _CONTEXT_LAYER_AVAILABLE.get(layer_key, False)
+    row_cls = "aw-ctx-row" if available else "aw-ctx-row aw-ctx-row-disabled"
+
+    if available:
+        checkbox = ui.input_checkbox(
+            input_id, meta["label"], value=False,
+        )
+        source = ui.span(
+            _resolved_layer_source(layer_key),
+            class_="aw-ctx-source",
+        )
+    else:
+        # Disabled stub: a non-interactive checkbox-like placeholder.
+        checkbox = ui.tags.label(
+            ui.tags.input(
+                type="checkbox", disabled="disabled",
+                class_="aw-ctx-disabled-input",
+            ),
+            ui.span(meta["label"], class_="aw-ctx-disabled-label"),
+            class_="aw-ctx-disabled-row",
+        )
+        source = ui.span(
+            "Sloj ni naložen",
+            class_="aw-ctx-source aw-ctx-source-missing",
+        )
+
+    return ui.div(checkbox, source, class_=row_cls)
+
+
 app_ui = ui.page_fluid(
     # ----- HEAD: humanist Google Fonts, custom CSS, custom JS --------------
     ui.head_content(
@@ -1080,6 +1363,56 @@ app_ui = ui.page_fluid(
                         ),
                         class_="aw-overlay aw-overlay-br",
                     ),
+
+                    # ---- Overlay CR: GeoSlovenija / eProstor context ----
+                    # Floating panel with togglable spatial-context layers.
+                    # Sentinel-5P data shows pollution; these layers show what
+                    # is physically present in the space around the event.
+                    ui.div(
+                        ui.div(
+                            ui.span("KONTEKST", class_="aw-ov-tag"),
+                            ui.div(
+                                "GeoSlovenija kontekst",
+                                class_="aw-ov-title-sm",
+                            ),
+                            class_="aw-ov-head",
+                        ),
+                        ui.div(
+                            "Satelitski podatki pokažejo, kako se signal "
+                            "spreminja. GeoSlovenija/eProstor sloji pokažejo, "
+                            "kaj je v prostoru okoli dogodka.",
+                            class_="aw-ctx-explain",
+                        ),
+                        ui.div(
+                            # Always-on event location row (rendered as a
+                            # fixed checkbox so the user can hide the marker
+                            # for screenshots if they want).
+                            ui.div(
+                                ui.input_checkbox(
+                                    "ctx_event",
+                                    "Lokacija dogodka",
+                                    value=True,
+                                ),
+                                ui.span(
+                                    "iz metapodatkov",
+                                    class_="aw-ctx-source",
+                                ),
+                                class_="aw-ctx-row aw-ctx-row-event",
+                            ),
+                            _ctx_layer_row(
+                                "ctx_municipalities", "municipalities",
+                            ),
+                            _ctx_layer_row(
+                                "ctx_transport", "transport",
+                            ),
+                            _ctx_layer_row(
+                                "ctx_industrial", "industrial",
+                            ),
+                            class_="aw-ctx-list",
+                        ),
+                        class_="aw-overlay aw-overlay-cr",
+                    ),
+
                     class_="aw-map-canvas",
                     id="aw-map",
                 ),
@@ -1612,6 +1945,21 @@ def server(input, output, session):
             _ = input.display_mode()
         if "region_code" in input:
             _ = input.region_code()
+        # GeoSlovenija / eProstor context-layer toggles — re-render the map
+        # whenever a layer is shown or hidden.
+        ctx_show_event = bool(input.ctx_event()) if "ctx_event" in input else True
+        ctx_show_muni = (
+            bool(input.ctx_municipalities())
+            if "ctx_municipalities" in input else False
+        )
+        ctx_show_transport = (
+            bool(input.ctx_transport())
+            if "ctx_transport" in input else False
+        )
+        ctx_show_industrial = (
+            bool(input.ctx_industrial())
+            if "ctx_industrial" in input else False
+        )
         df_disp = day_df_display()
         block = pollutant_block()
         ev = selected_event()
@@ -1751,7 +2099,14 @@ def server(input, output, session):
             ))
 
         # ---- Layer 4: event location marker — pulsing-style halo + core
-        if ev and ev.get("event_lat") is not None and ev.get("event_lon") is not None:
+        # Always shown by default (toggle defaults to True). Provenance:
+        # event metadata (data_pipeline/events/events.json or the multipollutant
+        # metadata file). Coordinates are EPSG:4326.
+        if (
+            ctx_show_event and ev
+            and ev.get("event_lat") is not None
+            and ev.get("event_lon") is not None
+        ):
             elat = ev["event_lat"]; elon = ev["event_lon"]
             label = ev.get("event_location_name") or ev.get("event_name") or "Lokacija dogodka"
             copy = _event_copy(ev)
@@ -1783,6 +2138,38 @@ def server(input, output, session):
                 ),
                 showlegend=False,
             ))
+
+        # ---- Layer 5+: GeoSlovenija / eProstor context overlays ----
+        # Each layer is drawn only if (a) its file is present on disk AND
+        # (b) the matching toggle is on. Styles are subtle so the NUTS3
+        # choropleth stays the primary reading.
+        if ctx_show_muni and _CONTEXT_LAYER_AVAILABLE.get("municipalities"):
+            _add_polygon_outline_layer(
+                fig,
+                _CONTEXT_LAYERS["municipalities"],
+                line_color="rgba(20,40,80,0.55)",
+                line_width=0.8,
+                name="Občine (eProstor)",
+            )
+
+        if ctx_show_transport and _CONTEXT_LAYER_AVAILABLE.get("transport"):
+            _add_line_layer(
+                fig,
+                _CONTEXT_LAYERS["transport"],
+                line_color="rgba(14,155,209,0.85)",
+                line_width=1.2,
+                name="Prometna infrastruktura (eProstor)",
+            )
+
+        if ctx_show_industrial and _CONTEXT_LAYER_AVAILABLE.get("industrial"):
+            _add_industrial_layer(
+                fig,
+                _CONTEXT_LAYERS["industrial"],
+                fill_color="rgba(217,102,55,0.22)",
+                line_color="rgba(217,102,55,0.85)",
+                point_color="rgba(217,102,55,0.95)",
+                name="Industrijska in poslovna območja (geo-peskovnik)",
+            )
 
         # ---- Layout
         fig.update_layout(
@@ -2129,6 +2516,14 @@ def server(input, output, session):
                 "Kako preveriti zaznavo",
                 "Za potrditev so potrebne meritve na tleh (ARSO) in "
                 "vremenski podatki.",
+            ),
+            (
+                "Prostorski kontekst (GeoSlovenija / eProstor)",
+                "Prostorski sloji dodajo kontekst urbanega, prometnega, "
+                "industrijskega ali poseljenega prostora. Ne dokazujejo "
+                "vzročnosti, ampak pomagajo interpretirati satelitski signal. "
+                "Viri: eProstor (občine, prometna infrastruktura) in "
+                "GeoSlovenija geo-peskovnik (industrijska in poslovna območja).",
             ),
         ]
         return ui.div(

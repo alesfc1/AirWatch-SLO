@@ -421,6 +421,15 @@ a:hover { color: #9af0ff; }
 .aw-overlay-tr { top: 22px; right: 22px; width: 320px; }
 .aw-overlay-bl { bottom: 22px; left: 22px; width: 320px; max-height: 360px; }
 .aw-overlay-br { bottom: 22px; right: 22px; width: 220px; }
+/* GeoSlovenija context panel — bottom-centered, between the BL intel and
+   BR legend stacks. Wide horizontal slot avoids overlap with the right-side
+   telemetry/legend column. */
+.aw-overlay-cr {
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 320px;
+}
 
 .aw-ov-head { margin-bottom: 8px; }
 .aw-ov-tag {
@@ -1169,17 +1178,93 @@ a:hover { color: #9af0ff; }
 .js-plotly-plot .plotly .main-svg { background: transparent !important; }
 
 
+/* ---------- 10b. GeoSlovenija context overlay -------------------------- */
+.aw-ctx-explain {
+  font-family: var(--body);
+  font-size: 11px;
+  color: var(--t3);
+  line-height: 1.4;
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  background: rgba(244, 247, 252, 0.65);
+  border: 1px solid var(--br-soft);
+  border-left: 2px solid var(--cyan);
+  border-radius: var(--r-sm);
+}
+.aw-ctx-list { display: flex; flex-direction: column; gap: 4px; }
+.aw-ctx-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px;
+  background: rgba(244, 247, 252, 0.55);
+  border: 1px solid var(--br-soft);
+  border-radius: var(--r-sm);
+  font-family: var(--body);
+  font-size: 12px;
+  color: var(--t2);
+}
+.aw-ctx-row .checkbox,
+.aw-ctx-row .form-check,
+.aw-ctx-row .shiny-input-container { margin: 0; flex: 1 1 auto; }
+.aw-ctx-row label { margin: 0; cursor: pointer; }
+.aw-ctx-row input[type="checkbox"] {
+  width: 14px; height: 14px;
+  accent-color: var(--cyan);
+  margin-right: 6px;
+  cursor: pointer;
+  vertical-align: -2px;
+}
+.aw-ctx-row-event {
+  background: rgba(217, 56, 56, 0.06);
+  border-left: 2px solid var(--red);
+}
+.aw-ctx-source {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t4);
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--br-soft);
+  background: rgba(255, 255, 255, 0.65);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.aw-ctx-source-missing {
+  color: var(--orange);
+  border-color: rgba(217, 102, 55, 0.4);
+  background: rgba(217, 102, 55, 0.08);
+}
+.aw-ctx-row-disabled {
+  opacity: 0.55;
+  background: rgba(244, 247, 252, 0.35);
+}
+.aw-ctx-row-disabled .aw-ctx-disabled-row {
+  display: inline-flex; align-items: center; gap: 6px;
+  flex: 1 1 auto;
+  color: var(--t4);
+  cursor: not-allowed;
+}
+.aw-ctx-row-disabled .aw-ctx-disabled-input {
+  pointer-events: none;
+}
+.aw-ctx-row-disabled .aw-ctx-disabled-label {
+  font-size: 12px;
+}
+
+
 /* ---------- 11. Responsive ---------------------------------------------- */
 @media (max-width: 1400px) {
   .aw-overlay-tl { width: 240px; }
   .aw-overlay-tr { width: 280px; }
   .aw-overlay-bl { width: 280px; }
   .aw-overlay-br { width: 200px; }
+  .aw-overlay-cr { width: 220px; }
 }
 @media (max-width: 1180px) {
   .aw-header-center { display: none; }
-  .aw-overlay-tl, .aw-overlay-tr, .aw-overlay-bl, .aw-overlay-br {
-    position: static; width: auto; margin: 8px;
+  .aw-overlay-tl, .aw-overlay-tr, .aw-overlay-bl, .aw-overlay-br, .aw-overlay-cr {
+    position: static; width: auto; margin: 8px; transform: none;
   }
   .aw-map-canvas { height: auto; }
   .aw-method-grid { grid-template-columns: 1fr; }
