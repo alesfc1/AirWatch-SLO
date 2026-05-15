@@ -321,7 +321,7 @@
         yref: "paper",
         y0: 0,
         y1: 1,
-        line: { color: "#ebf0f3", dash: "dot", width: 1.4 },
+        line: { color: "#1a2540", dash: "dot", width: 1.4 },
       });
     }
     try {

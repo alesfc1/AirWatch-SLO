@@ -11,3 +11,19 @@ __pycache__/
 *.pyc
 .DS_Store
 .claude
+
+# Python virtual environments
+.venv/
+venv/
+env/
+dashboard/.venv/
+dashboard_shiny/.venv/
+
+# macOS / duplicate conflict files
+.DS_Store
+* 2.py
+* 2.css
+* 2.js
+* 2.txt
+* 2.json
+* 2
