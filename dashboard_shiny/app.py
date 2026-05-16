@@ -2033,12 +2033,6 @@ app_ui = ui.page_fluid(
                         ui.div(
                             ui.div("GeoSlovenija konteksti", class_="aw-card-title"),
                             ui.div(
-                                "Satelitski podatki pokažejo, kako se signal "
-                                "spreminja. Sloji eProstor in geo-peskovnik "
-                                "pokažejo, kaj je v prostoru okoli dogodka.",
-                                class_="aw-ctx-explain",
-                            ),
-                            ui.div(
                                 ui.div(
                                     ui.input_checkbox(
                                         "ctx_event",
@@ -2945,6 +2939,13 @@ def server(input, output, session):
         if muni_uses_aq():
             return "Obdobje: julij 2022"
         return f"Leto: {muni_year()}"
+
+    @output
+    @render.text
+    def muni_year_value():
+        if muni_uses_aq():
+            return "julij 2022"
+        return str(muni_year())
 
     @output
     @render.text
