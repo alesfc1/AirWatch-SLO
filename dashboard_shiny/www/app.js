@@ -350,6 +350,28 @@
     });
   }
 
+  // ---- Mirror the scope radio into <body data-scope> so CSS can switch
+  // visibility of Regije-only vs Občine-only DOM pieces.
+  function applyScope(value) {
+    var v = value === "obcine" ? "obcine" : "regije";
+    document.body.dataset.scope = v;
+  }
+  function bindScopeMirror() {
+    var initial = document.querySelector(
+      'input[type="radio"][name="scope"]:checked'
+    );
+    applyScope(initial ? initial.value : "regije");
+    document.addEventListener("change", function (e) {
+      var t = e.target;
+      if (
+        t && t.tagName === "INPUT" && t.type === "radio" &&
+        t.name === "scope"
+      ) {
+        applyScope(t.value);
+      }
+    });
+  }
+
   function init() {
     attachParallax();
     bindEventFade();
@@ -359,6 +381,7 @@
     bindAutoPlayOnEventChange();
     bindMapRestyle();
     bindTrendDayMarker();
+    bindScopeMirror();
     autoStartOnFirstLoad();
   }
 

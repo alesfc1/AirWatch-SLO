@@ -512,6 +512,24 @@ _REGION_NAMES: dict[str, str] = {
     if (feat.get("properties") or {}).get("region_code")
 }
 
+# Capital / main town of each NUTS3 region. Coordinates are approximate
+# (city centre, EPSG:4326). Used purely for in-map orientation labels —
+# they are not measurement points.
+_REGION_CAPITALS: dict[str, dict] = {
+    "SI031": {"name": "Murska Sobota", "lat": 46.660, "lon": 16.166},
+    "SI032": {"name": "Maribor",        "lat": 46.554, "lon": 15.645},
+    "SI033": {"name": "Slovenj Gradec", "lat": 46.510, "lon": 15.081},
+    "SI034": {"name": "Celje",          "lat": 46.231, "lon": 15.262},
+    "SI035": {"name": "Trbovlje",       "lat": 46.155, "lon": 15.052},
+    "SI036": {"name": "Krško",          "lat": 45.957, "lon": 15.491},
+    "SI037": {"name": "Novo mesto",     "lat": 45.803, "lon": 15.169},
+    "SI038": {"name": "Postojna",       "lat": 45.776, "lon": 14.214},
+    "SI041": {"name": "Ljubljana",      "lat": 46.057, "lon": 14.506},
+    "SI042": {"name": "Kranj",          "lat": 46.239, "lon": 14.356},
+    "SI043": {"name": "Nova Gorica",    "lat": 45.953, "lon": 13.648},
+    "SI044": {"name": "Koper",          "lat": 45.546, "lon": 13.730},
+}
+
 # Eager-load optional GeoSlovenija / eProstor context layers. Missing files
 # return empty FeatureCollections so the UI stays robust.
 _CONTEXT_LAYERS: dict[str, dict] = load_context_layers()
@@ -882,6 +900,108 @@ _COMBINED_DF = load_combined_pollutant_frame()
 _EVENT_CACHE = build_event_cache(_COMBINED_DF, _EVENTS_LIST)
 
 
+# ---------------------------------------------------------------------------
+# Municipality-level dataset (data/dataset_municipalities.xlsx)
+#
+# Annual averages 2020–2025 for 212 Slovenian municipalities. Used only when
+# the "Občine" scope is selected — completely independent of the event-based
+# Sentinel-5P pipeline above.
+# ---------------------------------------------------------------------------
+
+_MUNI_XLSX = PROJECT_ROOT / "data" / "dataset_municipalities.xlsx"
+
+MUNI_METRICS: dict[str, dict] = {
+    "PM10": {
+        "col": "PM10 (µg/m³)",
+        "label": "PM10",  "unit": "µg/m³",
+        "name_slo": "Drobni delci PM10",
+    },
+    "PM25": {
+        "col": "PM2.5 (µg/m³)",
+        "label": "PM2.5", "unit": "µg/m³",
+        "name_slo": "Drobni delci PM2.5",
+    },
+    "O3": {
+        "col": "Ozon (µg/m³)",
+        "label": "O₃",    "unit": "µg/m³",
+        "name_slo": "Ozon",
+    },
+    "SO2": {
+        "col": "Žveplov dioksid (µg/m³)",
+        "label": "SO₂",   "unit": "µg/m³",
+        "name_slo": "Žveplov dioksid",
+    },
+    "NO2": {
+        "col": "Dušikov dioksid (µg/m³)",
+        "label": "NO₂",   "unit": "µg/m³",
+        "name_slo": "Dušikov dioksid",
+    },
+    "CO": {
+        "col": "Ogljikov monoksid (µg/m³)",
+        "label": "CO",    "unit": "µg/m³",
+        "name_slo": "Ogljikov monoksid",
+    },
+    "NPR": {
+        "col": "Novi primeri pljučnega raka",
+        "label": "Pljučni rak",
+        "unit": "primerov/100 000",
+        "name_slo": "Novi primeri pljučnega raka",
+    },
+    "UMR": {
+        "col": "Umrljivost zaradi pljučnega raka (0–74 let)",
+        "label": "Umrljivost",
+        "unit": "primerov/100 000",
+        "name_slo": "Umrljivost zaradi pljučnega raka (0–74 let)",
+    },
+}
+
+
+def load_muni_df(path: Path = _MUNI_XLSX) -> pd.DataFrame:
+    """Load the municipality xlsx into a long-form DataFrame.
+
+    Coerces the mixed-type cancer columns to numeric (`n` placeholder → NaN).
+    Renames columns to short ASCII keys matching ``MUNI_METRICS``.
+    Returns an empty frame if the file is missing.
+    """
+    if not path.exists():
+        return pd.DataFrame()
+    df = pd.read_excel(path, sheet_name="koncni_nabor_podatkov")
+    for key, meta in MUNI_METRICS.items():
+        col = meta["col"]
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    rename = {meta["col"]: key for key, meta in MUNI_METRICS.items()}
+    df = df.rename(columns=rename)
+    df = df.rename(columns={
+        "Lattitude": "lat",
+        "Longitude": "lon",
+        "Občina":   "muni",
+        "Leto":     "year",
+    })
+    df["year"] = df["year"].astype(int)
+    return df
+
+
+_MUNI_DF: pd.DataFrame = load_muni_df()
+_MUNI_YEARS: list[int] = (
+    sorted(_MUNI_DF["year"].unique().tolist())
+    if not _MUNI_DF.empty else [2020, 2025]
+)
+_MUNI_DEFAULT_YEAR: int = _MUNI_YEARS[-1]
+
+
+def _muni_metric_range(metric: str) -> tuple[float, float]:
+    """Stable colour-scale range for a municipality metric across all years."""
+    if _MUNI_DF.empty or metric not in _MUNI_DF.columns:
+        return (0.0, 1.0)
+    vals = pd.to_numeric(_MUNI_DF[metric], errors="coerce").dropna()
+    if vals.empty:
+        return (0.0, 1.0)
+    lo = float(vals.quantile(0.02))
+    hi = float(vals.quantile(0.98))
+    return (lo, max(hi, lo + 1e-6))
+
+
 def cache_pollutant_block(event_id: str, pollutant: str) -> dict:
     """Look up the per-(event, pollutant) sub-cache, with safe fallback."""
     entry = _EVENT_CACHE.get(event_id) or {}
@@ -1226,6 +1346,20 @@ _EVENT_CHOICES = _build_event_choices()
 _DEFAULT_EVENT_ID = next(iter(_EVENT_CHOICES), None)
 
 
+def _build_event_select_choices() -> dict[str, str]:
+    """Plain-text {event_id: slovene title} for the top-left dropdown."""
+    out: dict[str, str] = {}
+    for event in _EVENTS_LIST:
+        eid = event.get("event_id")
+        if not eid:
+            continue
+        out[eid] = _event_copy(event)["title"]
+    return out
+
+
+_EVENT_SELECT_CHOICES = _build_event_select_choices()
+
+
 # ---------------------------------------------------------------------------
 # UI tree
 # ---------------------------------------------------------------------------
@@ -1300,7 +1434,8 @@ app_ui = ui.page_fluid(
             name="viewport",
             content="width=device-width, initial-scale=1",
         ),
-        ui.tags.title("AirWatch GeoSlovenija — kakovost zraka iz satelita"),
+        ui.tags.title("AirWatch SLO"),
+        ui.tags.link(rel="icon", type="image/svg+xml", href="logo.png"),
         ui.tags.link(rel="preconnect", href="https://fonts.googleapis.com"),
         ui.tags.link(
             rel="preconnect",
@@ -1329,86 +1464,7 @@ app_ui = ui.page_fluid(
         # ===== STATUS BANNER (only renders if data missing) ===============
         ui.output_ui("status_banner"),
 
-        # ===== 1. MISSION-CONTROL TOP HEADER ==============================
-        ui.tags.header(
-            # left: brand block
-            ui.div(
-                ui.tags.span(
-                    ui.HTML(
-                        "<svg width='22' height='22' viewBox='0 0 24 24' "
-                        "fill='none' stroke='currentColor' stroke-width='1.7' "
-                        "stroke-linecap='round' stroke-linejoin='round'>"
-                        "<circle cx='12' cy='12' r='9'/>"
-                        "<path d='M3 12h18'/>"
-                        "<path d='M12 3a13 13 0 0 1 0 18'/>"
-                        "<path d='M12 3a13 13 0 0 0 0 18'/>"
-                        "</svg>"
-                    ),
-                    class_="aw-brand-mark",
-                ),
-                ui.div(
-                    ui.div("AIRWATCH", class_="aw-brand-1"),
-                    ui.div("Geo·Slovenija", class_="aw-brand-2"),
-                ),
-                class_="aw-brand",
-            ),
-
-            # center: mission + pollutant chip rails
-            ui.div(
-                ui.div(
-                    ui.div("MISIJA", class_="aw-rail-label"),
-                    ui.div(
-                        ui.input_radio_buttons(
-                            "event_id",
-                            None,
-                            choices=_EVENT_CHOICES or {"": "Ni dogodkov"},
-                            selected=_DEFAULT_EVENT_ID,
-                            inline=True,
-                        ),
-                        class_="aw-event-rail",
-                    ),
-                    class_="aw-rail aw-rail-event",
-                ),
-                ui.div(
-                    ui.div("ONESNAŽEVALO", class_="aw-rail-label"),
-                    ui.div(
-                        ui.input_radio_buttons(
-                            "pollutant",
-                            None,
-                            choices={"NO2": _pollutant_choice_label("NO2")},
-                            selected="NO2",
-                            inline=True,
-                        ),
-                        class_="aw-pollutant-rail",
-                    ),
-                    class_="aw-rail aw-rail-pollutant",
-                ),
-                class_="aw-header-center",
-            ),
-
-            # right: status badges
-            ui.div(
-                ui.output_ui("hero_status_badge"),
-                ui.span(
-                    ui.HTML(
-                        "<svg width='12' height='12' viewBox='0 0 24 24' "
-                        "fill='none' stroke='currentColor' stroke-width='1.8' "
-                        "stroke-linecap='round' stroke-linejoin='round'>"
-                        "<polyline points='3 7 12 13 21 7'/>"
-                        "<rect x='3' y='5' width='18' height='14' rx='2'/>"
-                        "</svg>"
-                    ),
-                    "Sentinel-5P · ESA",
-                    class_="aw-badge signal",
-                ),
-                class_="aw-header-right",
-            ),
-
-            class_="aw-top-header",
-            id="aw-overview",
-        ),
-
-        # ===== 2. MAIN MAP STAGE ==========================================
+        # ===== MAIN MAP STAGE =============================================
         ui.tags.main(
             ui.div(
 
@@ -1420,19 +1476,102 @@ app_ui = ui.page_fluid(
                     ui.div(
                         ui.div(
                             ui.div(
+                                # ----- regions scope block -----
                                 ui.div(
-                                    ui.output_text("map_title", inline=True),
-                                    class_="aw-map-head-title",
+                                    ui.div(
+                                        "Dogodek",
+                                        class_="aw-map-head-eyebrow",
+                                    ),
+                                    ui.input_select(
+                                        "event_id",
+                                        None,
+                                        choices=(
+                                            _EVENT_SELECT_CHOICES
+                                            or {"": "Ni dogodkov"}
+                                        ),
+                                        selected=_DEFAULT_EVENT_ID,
+                                    ),
+                                    ui.div(
+                                        ui.output_text(
+                                            "map_title", inline=True
+                                        ),
+                                        class_="aw-map-head-date",
+                                    ),
+                                    ui.div(
+                                        ui.output_text(
+                                            "event_type_subtitle",
+                                            inline=True,
+                                        ),
+                                        class_="aw-map-head-type",
+                                    ),
+                                    ui.div(
+                                        "Onesnaževalo",
+                                        class_="aw-map-head-eyebrow",
+                                    ),
+                                    ui.div(
+                                        ui.input_radio_buttons(
+                                            "pollutant",
+                                            None,
+                                            choices={
+                                                "NO2": _pollutant_choice_label(
+                                                    "NO2"
+                                                )
+                                            },
+                                            selected="NO2",
+                                            inline=True,
+                                        ),
+                                        class_="aw-poll-check",
+                                    ),
+                                    class_="aw-scope-regije-only",
                                 ),
+
+                                # ----- municipalities scope block -----
                                 ui.div(
-                                    ui.output_text("map_subtitle", inline=True),
-                                    class_="aw-map-head-sub",
+                                    ui.div(
+                                        "Območje",
+                                        class_="aw-map-head-eyebrow",
+                                    ),
+                                    ui.div(
+                                        "Občine Slovenije",
+                                        class_="aw-map-head-title-strong",
+                                    ),
+                                    ui.div(
+                                        ui.output_text(
+                                            "muni_year_label", inline=True
+                                        ),
+                                        class_="aw-map-head-date",
+                                    ),
+                                    ui.div(
+                                        "Pokazatelj",
+                                        class_="aw-map-head-eyebrow",
+                                    ),
+                                    ui.div(
+                                        ui.input_radio_buttons(
+                                            "muni_metric",
+                                            None,
+                                            choices={
+                                                k: ui.tags.span(
+                                                    spec["label"],
+                                                    class_="poll-short",
+                                                )
+                                                for k, spec in MUNI_METRICS.items()
+                                            },
+                                            selected="PM10",
+                                            inline=True,
+                                        ),
+                                        class_="aw-poll-check aw-poll-check-wide",
+                                    ),
+                                    class_="aw-scope-obcine-only",
                                 ),
                                 class_="aw-map-head",
                             ),
                             # Plotly mapbox is rendered into this static div
                             # by the `map_figure` custom message.
                             ui.tags.div(id="map_plot"),
+                            # Floating colour + quality legend on bottom-right
+                            # of the map. Rendered server-side so the ticks
+                            # follow the current event / pollutant / mode.
+                            ui.output_ui("map_legend_floating"),
                             class_="aw-map-canvas",
                             id="aw-map",
                         ),
@@ -1444,24 +1583,29 @@ app_ui = ui.page_fluid(
                                 ui.tags.span("Predvajaj", class_="play-label"),
                                 id="aw-play-toggle",
                                 type="button",
-                                class_="aw-play-btn",
+                                class_="aw-play-btn aw-scope-regije-only",
                                 **{"aria-label": "Predvajaj animacijo skozi mesec"},
                             ),
+                            # ----- regions: day-slider meta + slider -----
                             ui.div(
                                 ui.div("Datum", class_="aw-tl-meta-label"),
                                 ui.div(
-                                    ui.output_text("selected_date_display", inline=True),
+                                    ui.output_text(
+                                        "selected_date_display", inline=True
+                                    ),
                                     class_="aw-tl-meta-value",
                                 ),
-                                class_="aw-tl-meta",
+                                class_="aw-tl-meta aw-scope-regije-only",
                             ),
                             ui.div(
                                 ui.div("Razpon", class_="aw-tl-meta-label"),
                                 ui.div(
-                                    ui.output_ui("day_counter_display", inline=True),
+                                    ui.output_ui(
+                                        "day_counter_display", inline=True
+                                    ),
                                     class_="aw-tl-meta-value",
                                 ),
-                                class_="aw-tl-meta",
+                                class_="aw-tl-meta aw-scope-regije-only",
                             ),
                             ui.div(
                                 ui.output_ui("event_window_overlay"),
@@ -1474,7 +1618,40 @@ app_ui = ui.page_fluid(
                                     step=1,
                                     ticks=True,
                                 ),
-                                class_="aw-slider-stage",
+                                class_="aw-slider-stage aw-scope-regije-only",
+                            ),
+
+                            # ----- municipalities: year-slider meta + slider -----
+                            ui.div(
+                                ui.div("Leto", class_="aw-tl-meta-label"),
+                                ui.div(
+                                    ui.output_text(
+                                        "muni_year_value", inline=True
+                                    ),
+                                    class_="aw-tl-meta-value",
+                                ),
+                                class_="aw-tl-meta aw-scope-obcine-only",
+                            ),
+                            ui.div(
+                                ui.div("Razpon", class_="aw-tl-meta-label"),
+                                ui.div(
+                                    f"{_MUNI_YEARS[0]} – {_MUNI_YEARS[-1]}",
+                                    class_="aw-tl-meta-value",
+                                ),
+                                class_="aw-tl-meta aw-scope-obcine-only",
+                            ),
+                            ui.div(
+                                ui.input_slider(
+                                    "muni_year",
+                                    None,
+                                    min=_MUNI_YEARS[0],
+                                    max=_MUNI_YEARS[-1],
+                                    value=_MUNI_DEFAULT_YEAR,
+                                    step=1,
+                                    sep="",
+                                    ticks=True,
+                                ),
+                                class_="aw-slider-stage aw-scope-obcine-only",
                             ),
                             class_="aw-timeline-dock",
                             id="aw-timeline",
@@ -1485,60 +1662,55 @@ app_ui = ui.page_fluid(
                     # ---- RIGHT COLUMN: side rail of cards --------------
                     ui.div(
 
-                        # Card: display mode toggle
+                        # Card: scope + display mode toggle
                         ui.div(
                             ui.div("Način prikaza", class_="aw-card-title"),
                             ui.div(
                                 ui.input_radio_buttons(
-                                    "display_mode",
+                                    "scope",
                                     None,
                                     choices={
-                                        "absolute": ui.tags.span("Dejanske"),
-                                        "anomaly":  ui.tags.span("Odstopanje"),
+                                        "regije": ui.tags.span("Regije"),
+                                        "obcine": ui.tags.span("Občine"),
                                     },
-                                    selected="absolute",
+                                    selected="regije",
                                     inline=True,
                                 ),
-                                class_="aw-mode-toggle",
+                                class_="aw-mode-toggle aw-scope-toggle",
+                            ),
+                            # display_mode (Dejanske / Odstopanje) is meaningful
+                            # only for the region view; hidden by CSS when the
+                            # body has data-scope="obcine".
+                            ui.div(
+                                ui.div(
+                                    "Prikaz",
+                                    class_="aw-card-sublabel",
+                                ),
+                                ui.div(
+                                    ui.input_radio_buttons(
+                                        "display_mode",
+                                        None,
+                                        choices={
+                                            "absolute": ui.tags.span("Dejanske"),
+                                            "anomaly":  ui.tags.span("Odstopanje"),
+                                        },
+                                        selected="absolute",
+                                        inline=True,
+                                    ),
+                                    class_="aw-mode-toggle",
+                                ),
+                                class_="aw-display-mode-wrap aw-scope-regije-only",
                             ),
                             class_="aw-card aw-card-mode",
                         ),
 
-                        # Card: telemetry strip
+                        # Card: Slovenia composite value (no header, no date)
                         ui.div(
-                            ui.div(
-                                ui.div("Telemetrija", class_="aw-card-title"),
-                                ui.span(
-                                    ui.output_text("selected_date_compact", inline=True),
-                                    class_="aw-card-meta",
-                                ),
-                                class_="aw-card-head",
-                            ),
                             ui.div(
                                 ui.div(
                                     ui.div("Povprečje SLO", class_="aw-tel-label"),
                                     ui.output_ui("t_slovenia_avg", inline=True),
                                     class_="aw-tel-cell aw-tel-primary",
-                                ),
-                                ui.div(
-                                    ui.div("Najvišja", class_="aw-tel-label"),
-                                    ui.output_ui("t_highest", inline=True),
-                                    class_="aw-tel-cell aw-tel-alert",
-                                ),
-                                ui.div(
-                                    ui.div("Najnižja", class_="aw-tel-label"),
-                                    ui.output_ui("t_lowest", inline=True),
-                                    class_="aw-tel-cell aw-tel-cool",
-                                ),
-                                ui.div(
-                                    ui.div("Regije", class_="aw-tel-label"),
-                                    ui.output_ui("t_valid", inline=True),
-                                    class_="aw-tel-cell",
-                                ),
-                                ui.div(
-                                    ui.div("Kakovost", class_="aw-tel-label"),
-                                    ui.output_ui("t_quality", inline=True),
-                                    class_="aw-tel-cell aw-tel-warn",
                                 ),
                                 class_="aw-tel-grid",
                             ),
@@ -1556,42 +1728,6 @@ app_ui = ui.page_fluid(
                             ),
                             ui.output_ui("region_detail"),
                             class_="aw-card aw-card-region",
-                        ),
-
-                        # Card: color + quality legend
-                        ui.div(
-                            ui.div("Legenda", class_="aw-card-title"),
-                            ui.div(
-                                ui.div("Koncentracija", class_="aw-leg-title"),
-                                ui.span(class_="aw-leg-ramp"),
-                                ui.div(
-                                    ui.span("nizka"),
-                                    ui.span("srednja"),
-                                    ui.span("visoka"),
-                                    class_="aw-leg-labels",
-                                ),
-                                class_="aw-leg-color",
-                            ),
-                            ui.div(
-                                ui.div("Kakovost meritve", class_="aw-leg-title"),
-                                ui.div(
-                                    ui.span(class_="aw-qpip good"),
-                                    ui.span("dobra"),
-                                    class_="aw-qrow",
-                                ),
-                                ui.div(
-                                    ui.span(class_="aw-qpip partial"),
-                                    ui.span("delna"),
-                                    class_="aw-qrow",
-                                ),
-                                ui.div(
-                                    ui.span(class_="aw-qpip missing"),
-                                    ui.span("ni podatkov"),
-                                    class_="aw-qrow",
-                                ),
-                                class_="aw-leg-quality",
-                            ),
-                            class_="aw-card",
                         ),
 
                         # Card: GeoSlovenija context layers
@@ -1843,6 +1979,123 @@ def _map_color_range(block: dict, mode: str) -> tuple[float, float]:
     vmin = float(np.nanmin(vals))
     vmax = float(np.nanmax(vals))
     return (vmin, max(vmax, vmin + 1e-6))
+
+
+# Esri "Dark Gray Canvas Base" raster tile service. Served over `white-bg`
+# Plotly basemap so the canvas is the medium-dark gray the user asked for
+# (the built-in `carto-darkmatter` reads almost pure black). Layer is placed
+# `below="traces"` so the choropleth, labels and event markers paint on top.
+_DARK_GRAY_BASEMAP_LAYER = dict(
+    sourcetype="raster",
+    sourceattribution=(
+        "Esri, HERE, Garmin, FAO, NOAA, USGS, © OpenStreetMap contributors"
+    ),
+    source=[
+        "https://services.arcgisonline.com/arcgis/rest/services/"
+        "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+    ],
+    below="traces",
+)
+
+
+def _mapbox_config_dark_gray(**overrides) -> dict:
+    """Plotly `mapbox` config that uses the Dark Gray Canvas raster as basemap."""
+    cfg = dict(
+        style="white-bg",
+        layers=[_DARK_GRAY_BASEMAP_LAYER],
+        center=dict(lat=46.15, lon=14.99),
+        zoom=7.0,
+    )
+    cfg.update(overrides)
+    return cfg
+
+
+def _build_municipality_figure(metric: str, year: int) -> go.Figure:
+    """Bubble map of all municipalities coloured by ``metric`` for ``year``.
+
+    Always uses the Dark Gray Canvas raster basemap. The colour-scale range
+    is fixed across years so the same colour means the same value over time.
+    """
+    spec = MUNI_METRICS.get(metric, MUNI_METRICS["PM10"])
+    fig = go.Figure()
+
+    if _MUNI_DF.empty or metric not in _MUNI_DF.columns:
+        fig.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            mapbox=_mapbox_config_dark_gray(uirevision="map-keep-view"),
+            margin=dict(l=0, r=0, t=0, b=0),
+            height=680,
+            showlegend=False,
+        )
+        fig.add_annotation(
+            text="Občinski podatki niso na voljo.",
+            font=dict(color="#c0cbe0",
+                      family="DM Sans, system-ui, sans-serif", size=14),
+            showarrow=False, x=0.5, y=0.5, xref="paper", yref="paper",
+        )
+        return fig
+
+    zmin, zmax = _muni_metric_range(metric)
+    sub = _MUNI_DF[_MUNI_DF["year"] == year].copy()
+    sub[metric] = pd.to_numeric(sub[metric], errors="coerce")
+    valid = sub.dropna(subset=[metric, "lat", "lon"])
+    missing = sub[sub[metric].isna()]
+
+    unit = spec["unit"]
+    title = spec["name_slo"]
+
+    # Municipalities with no data this year — small grey hollow dots.
+    if not missing.empty:
+        fig.add_trace(go.Scattermapbox(
+            lat=missing["lat"], lon=missing["lon"],
+            mode="markers",
+            marker=dict(size=6, color="rgba(170,180,196,0.55)"),
+            text=missing["muni"],
+            hovertemplate=(
+                "<b>%{text}</b><br>"
+                f"{title} ({year}): ni podatka<extra></extra>"
+            ),
+            showlegend=False,
+        ))
+
+    if not valid.empty:
+        fig.add_trace(go.Scattermapbox(
+            lat=valid["lat"], lon=valid["lon"],
+            mode="markers",
+            marker=dict(
+                size=13,
+                color=valid[metric].astype(float).tolist(),
+                colorscale=NO2_COLORSCALE,
+                cmin=zmin, cmax=zmax,
+                opacity=0.92,
+            ),
+            text=valid["muni"],
+            customdata=valid[[metric]].values,
+            hovertemplate=(
+                "<b>%{text}</b><br>"
+                f"{title}: %{{customdata[0]:.2f}} {unit}<br>"
+                f"Leto: {year}<extra></extra>"
+            ),
+            showlegend=False,
+        ))
+
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        mapbox=_mapbox_config_dark_gray(uirevision="map-keep-view"),
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=680,
+        showlegend=False,
+        font=dict(family="DM Sans, system-ui, sans-serif", color="#e6edf6"),
+        hoverlabel=dict(
+            bgcolor="rgba(18,24,38,0.96)",
+            bordercolor="rgba(14,155,209,0.55)",
+            font=dict(family="DM Sans, system-ui, sans-serif",
+                      color="#e6edf6", size=12),
+        ),
+    )
+    return fig
 
 
 def server(input, output, session):
@@ -2114,7 +2367,7 @@ def server(input, output, session):
     @render.text
     def map_title():
         d = current_date_str()
-        return f"Slovenija — {_slovene_date(d)}" if d else "Slovenija"
+        return _slovene_date(d) if d else "Slovenija"
 
     @output
     @render.text
@@ -2128,12 +2381,150 @@ def server(input, output, session):
 
     @output
     @render.text
+    def event_type_subtitle():
+        """Short event-type label shown under the map-head dropdown."""
+        ev = selected_event()
+        if not ev:
+            return ""
+        return _event_copy(ev)["type"]
+
+    # -- Municipality scope helpers ----------------------------------------
+
+    @reactive.calc
+    def scope_value() -> str:
+        return (input.scope() if "scope" in input else "regije") or "regije"
+
+    @reactive.calc
+    def muni_year() -> int:
+        if "muni_year" in input and input.muni_year() is not None:
+            try:
+                return int(input.muni_year())
+            except (TypeError, ValueError):
+                pass
+        return _MUNI_DEFAULT_YEAR
+
+    @reactive.calc
+    def muni_metric() -> str:
+        m = input.muni_metric() if "muni_metric" in input else None
+        return m if m in MUNI_METRICS else "PM10"
+
+    @output
+    @render.text
+    def muni_year_label():
+        return f"Leto: {muni_year()}"
+
+    @output
+    @render.text
+    def muni_year_value():
+        return str(muni_year())
+
+    @output
+    @render.text
     def map_mode_label():
         mode = input.display_mode() if "display_mode" in input else "absolute"
         short = pollutant_spec()["short"]
         return ("Prikaz: odstopanje od povprečja"
                 if mode == "anomaly"
                 else f"Prikaz: dejanske vrednosti {short}")
+
+    # ---- Floating bottom-right map legend (colour ramp + quality pips) ----
+
+    @output
+    @render.ui
+    def map_legend_floating():
+        # ---- Občine scope: bubble-map legend ----
+        if scope_value() == "obcine":
+            metric = muni_metric()
+            mspec = MUNI_METRICS.get(metric, MUNI_METRICS["PM10"])
+            zmin, zmax = _muni_metric_range(metric)
+            mid_val = (zmin + zmax) / 2.0
+            cscale = NO2_COLORSCALE
+            gradient_css = ", ".join(
+                f"{col} {pos * 100:.1f}%" for pos, col in cscale
+            )
+            ramp_title = f"{mspec['name_slo']} · {mspec['unit']}"
+            return ui.div(
+                ui.div(ramp_title, class_="aw-mlegend-title"),
+                ui.div(
+                    ui.span(
+                        class_="aw-mlegend-ramp",
+                        style=f"background: linear-gradient(90deg, {gradient_css});",
+                    ),
+                    ui.div(
+                        ui.span(f"{zmin:.2f}", class_="aw-mlegend-tick"),
+                        ui.span(f"{mid_val:.2f}", class_="aw-mlegend-tick"),
+                        ui.span(f"{zmax:.2f}", class_="aw-mlegend-tick"),
+                        class_="aw-mlegend-ticks",
+                    ),
+                    class_="aw-mlegend-ramp-wrap",
+                ),
+                ui.div(
+                    f"Letno povprečje, leto {muni_year()} · 212 občin",
+                    class_="aw-mlegend-note",
+                ),
+                class_="aw-mlegend",
+            )
+
+        # ---- Regije scope (existing event-based legend) ----
+        block = pollutant_block()
+        mode = input.display_mode() if "display_mode" in input else "absolute"
+        spec = pollutant_spec()
+        unit = spec.get("display_unit", NO2_UNIT)
+        p_short = spec.get("short", "NO₂")
+        decimals = int(spec.get("decimals", 1))
+
+        zmin, zmax = _map_color_range(block, mode)
+        cscale = ANOMALY_COLORSCALE if mode == "anomaly" else NO2_COLORSCALE
+        gradient_css = ", ".join(
+            f"{col} {pos * 100:.1f}%" for pos, col in cscale
+        )
+
+        if mode == "anomaly":
+            ramp_title = f"Odstopanje {p_short} od povp. meseca"
+            mid_val = 0.0
+        else:
+            ramp_title = f"{p_short} · {unit}"
+            mid_val = (zmin + zmax) / 2.0
+
+        def _fmt(v: float) -> str:
+            return (f"{v:+.{decimals}f}" if mode == "anomaly"
+                    else f"{v:.{decimals}f}")
+
+        return ui.div(
+            ui.div(ramp_title, class_="aw-mlegend-title"),
+            ui.div(
+                ui.span(
+                    class_="aw-mlegend-ramp",
+                    style=f"background: linear-gradient(90deg, {gradient_css});",
+                ),
+                ui.div(
+                    ui.span(_fmt(zmin), class_="aw-mlegend-tick"),
+                    ui.span(_fmt(mid_val), class_="aw-mlegend-tick"),
+                    ui.span(_fmt(zmax), class_="aw-mlegend-tick"),
+                    class_="aw-mlegend-ticks",
+                ),
+                class_="aw-mlegend-ramp-wrap",
+            ),
+            ui.div(
+                ui.div(
+                    ui.span(class_="aw-qpip good"),
+                    ui.span("dobra", class_="aw-mlegend-qlabel"),
+                    class_="aw-mlegend-qrow",
+                ),
+                ui.div(
+                    ui.span(class_="aw-qpip partial"),
+                    ui.span("delna", class_="aw-mlegend-qlabel"),
+                    class_="aw-mlegend-qrow",
+                ),
+                ui.div(
+                    ui.span(class_="aw-qpip missing"),
+                    ui.span("ni podatkov", class_="aw-mlegend-qlabel"),
+                    class_="aw-mlegend-qrow",
+                ),
+                class_="aw-mlegend-quality",
+            ),
+            class_="aw-mlegend",
+        )
 
     # The map figure is rebuilt on every relevant input change INCLUDING the
     # day slider, so the choropleth fill always matches the current day's
@@ -2151,6 +2542,10 @@ def server(input, output, session):
             _ = input.display_mode()
         if "region_code" in input:
             _ = input.region_code()
+        # Scope dep — switches the whole figure when the user toggles Občine.
+        _ = scope_value()
+        if scope_value() == "obcine":
+            return _build_municipality_figure(muni_metric(), muni_year())
         # GeoSlovenija / eProstor context-layer toggles — re-render the map
         # whenever a layer is shown or hidden.
         ctx_show_event = bool(input.ctx_event()) if "ctx_event" in input else True
@@ -2178,18 +2573,14 @@ def server(input, output, session):
             fig.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                mapbox=dict(
-                    style="carto-positron",
-                    center=dict(lat=46.15, lon=14.99),
-                    zoom=7.0,
-                ),
+                mapbox=_mapbox_config_dark_gray(),
                 margin=dict(l=0, r=0, t=0, b=0),
                 height=680,
                 showlegend=False,
             )
             fig.add_annotation(
                 text="Ni razpoložljivih podatkov.",
-                font=dict(color="#6a7894",
+                font=dict(color="#c0cbe0",
                           family="DM Sans, system-ui, sans-serif", size=14),
                 showarrow=False, x=0.5, y=0.5, xref="paper", yref="paper",
             )
@@ -2234,31 +2625,14 @@ def server(input, output, session):
                 colorscale=cscale,
                 zmin=zmin, zmax=zmax,
                 marker=dict(
-                    line=dict(color="rgba(30,40,70,0.85)", width=1.4),
-                    opacity=0.92,
+                    line=dict(color="rgba(0,0,0,0.55)", width=2.2),
+                    opacity=0.85,
                 ),
                 customdata=_map_value_customdata(wv) if not wv.empty else [],
                 hovertemplate=hovertemplate_val,
-                colorbar=dict(
-                    title=dict(
-                        text=color_title,
-                        font=dict(family="Manrope, system-ui, sans-serif",
-                                  color="#1f2a3e", size=11),
-                    ),
-                    thickness=10,
-                    len=0.55,
-                    x=0.985,
-                    y=0.42,
-                    bgcolor="rgba(255,255,255,0.92)",
-                    bordercolor="rgba(30,64,120,0.18)",
-                    borderwidth=1,
-                    tickfont=dict(family="JetBrains Mono, monospace",
-                                  color="#1f2a3e", size=10),
-                    outlinecolor="rgba(30,64,120,0.18)",
-                    ticks="outside",
-                ),
                 name="",
-                showscale=True,
+                # On-map floating legend handles the colour ramp now.
+                showscale=False,
             )
         )
 
@@ -2269,11 +2643,11 @@ def server(input, output, session):
                 locations=nv["region_code"].astype(str).tolist(),
                 z=[0.0] * len(nv),
                 featureidkey="properties.region_code",
-                colorscale=[[0, "rgba(150,160,185,0.55)"], [1, "rgba(150,160,185,0.55)"]],
+                colorscale=[[0, "rgba(70,80,100,0.55)"], [1, "rgba(70,80,100,0.55)"]],
                 showscale=False,
                 marker=dict(
-                    line=dict(color="rgba(60,80,120,0.70)", width=1.0),
-                    opacity=0.80,
+                    line=dict(color="rgba(0,0,0,0.55)", width=2.2),
+                    opacity=0.65,
                 ),
                 customdata=_map_no_data_customdata(nv) if not nv.empty else [],
                 hovertemplate=(
@@ -2303,10 +2677,49 @@ def server(input, output, session):
                     text=lab_texts,
                     textfont=dict(
                         family="Manrope, system-ui, sans-serif",
-                        size=11,
-                        color="#0b1424",
+                        size=12,
+                        color="rgba(245,248,252,0.85)",
                     ),
                     textposition="middle center",
+                    hoverinfo="skip",
+                    showlegend=False,
+                ))
+
+        # ---- Layer 2.6: capital / main town of each region ----
+        # Small white dot at the city centre + town name below it. Orients
+        # the reader; no measurement data attached.
+        if _REGION_CAPITALS:
+            cap_lats: list[float] = []
+            cap_lons: list[float] = []
+            cap_names: list[str] = []
+            for cap in _REGION_CAPITALS.values():
+                cap_lats.append(cap["lat"])
+                cap_lons.append(cap["lon"])
+                cap_names.append(cap["name"])
+            if cap_lats:
+                # dot markers
+                fig.add_trace(go.Scattermapbox(
+                    lat=cap_lats, lon=cap_lons,
+                    mode="markers",
+                    marker=dict(
+                        size=6,
+                        color="#ffffff",
+                    ),
+                    hovertext=cap_names,
+                    hovertemplate="<b>%{hovertext}</b><extra></extra>",
+                    showlegend=False,
+                ))
+                # town-name text labels just below each dot
+                fig.add_trace(go.Scattermapbox(
+                    lat=cap_lats, lon=cap_lons,
+                    mode="text",
+                    text=cap_names,
+                    textfont=dict(
+                        family="DM Sans, system-ui, sans-serif",
+                        size=10,
+                        color="#ffffff",
+                    ),
+                    textposition="bottom right",
                     hoverinfo="skip",
                     showlegend=False,
                 ))
@@ -2359,11 +2772,11 @@ def server(input, output, session):
             fig.add_trace(go.Scattermapbox(
                 lat=[elat], lon=[elon],
                 mode="markers+text",
-                marker=dict(size=14, color="#c93838"),
+                marker=dict(size=14, color="#ff6a6a"),
                 text=[copy["title"]],
                 textposition="top right",
                 textfont=dict(family="Manrope, system-ui, sans-serif",
-                              color="#8a1f1f", size=12),
+                              color="#ffd1d1", size=12),
                 hovertemplate=(
                     f"<b>{copy['title']}</b><br>{label}<extra></extra>"
                 ),
@@ -2378,8 +2791,8 @@ def server(input, output, session):
             _add_polygon_outline_layer(
                 fig,
                 _CONTEXT_LAYERS["municipalities"],
-                line_color="rgba(20,40,80,0.55)",
-                line_width=0.8,
+                line_color="rgba(255,255,255,0.32)",
+                line_width=0.7,
                 name="Občine (eProstor)",
             )
 
@@ -2406,21 +2819,16 @@ def server(input, output, session):
         fig.update_layout(
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            mapbox=dict(
-                style="carto-positron",
-                center=dict(lat=46.15, lon=14.99),
-                zoom=7.0,
-                uirevision="map-keep-view",
-            ),
+            mapbox=_mapbox_config_dark_gray(uirevision="map-keep-view"),
             margin=dict(l=0, r=0, t=0, b=0),
             height=680,
             showlegend=False,
-            font=dict(family="DM Sans, system-ui, sans-serif", color="#1f2a3e"),
+            font=dict(family="DM Sans, system-ui, sans-serif", color="#e6edf6"),
             hoverlabel=dict(
-                bgcolor="rgba(255,255,255,0.97)",
-                bordercolor="rgba(14,155,209,0.45)",
+                bgcolor="rgba(18,24,38,0.96)",
+                bordercolor="rgba(14,155,209,0.55)",
                 font=dict(family="DM Sans, system-ui, sans-serif",
-                          color="#0b1424", size=12),
+                          color="#e6edf6", size=12),
             ),
         )
         return fig

@@ -121,10 +121,10 @@ a:hover { color: #9af0ff; }
 
 /* ---------- 3. Top mission-control header ------------------------------- */
 .aw-top-header {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 18px;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
+  gap: 18px;
   padding: 10px 14px;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.96), rgba(244,247,252,0.88));
@@ -377,7 +377,7 @@ a:hover { color: #9af0ff; }
 .aw-card {
   background: var(--bg-card);
   border: 1px solid var(--br-line);
-  border-radius: var(--r-md);
+  border-radius: 0;
   padding: 12px 14px;
   box-shadow: var(--shadow-card);
 }
@@ -404,7 +404,7 @@ a:hover { color: #9af0ff; }
 .aw-map-canvas {
   position: relative;
   height: 680px;
-  background: var(--bg-card);
+  background: #0e131c;
   border: 1px solid var(--br-line);
   border-radius: var(--r-lg);
   overflow: hidden;
@@ -412,36 +412,214 @@ a:hover { color: #9af0ff; }
 }
 .aw-map-head {
   position: absolute;
-  top: 12px; left: 14px;
+  top: 14px; left: 16px;
   z-index: 3;
-  pointer-events: none;
-  background: rgba(255,255,255,0.85);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  padding: 6px 10px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--br-soft);
+  width: 280px;
+  background: rgba(14,19,28,0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 12px 14px 14px;
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.32);
 }
-.aw-map-head-title {
+.aw-map-head-eyebrow {
+  font-family: var(--body);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(245,248,252,0.55);
+  margin-bottom: 4px;
+}
+.aw-map-head-eyebrow + .aw-poll-check { margin-top: 0; }
+.aw-map-head .shiny-input-container,
+.aw-map-head .form-group { margin-bottom: 10px; }
+.aw-map-head select.form-control,
+.aw-map-head select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: rgba(255,255,255,0.06);
+  color: #f5f8fc;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 4px;
+  padding: 8px 30px 8px 12px;
   font-family: var(--display);
   font-weight: 600;
-  font-size: 14px;
-  color: var(--t1);
+  font-size: 13.5px;
+  letter-spacing: -0.005em;
   line-height: 1.2;
+  cursor: pointer;
+  /* down-arrow chevron */
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgba(245,248,252,0.85) 50%),
+    linear-gradient(135deg, rgba(245,248,252,0.85) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 52%,
+    calc(100% - 11px) 52%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  transition: border-color 0.15s, background-color 0.15s;
 }
-.aw-map-head-sub {
+.aw-map-head select:hover,
+.aw-map-head select:focus {
+  outline: none;
+  border-color: rgba(14,155,209,0.65);
+  background-color: rgba(255,255,255,0.10);
+}
+.aw-map-head select option {
+  background: #14192a;
+  color: #f5f8fc;
+}
+.aw-map-head-date {
   font-family: var(--body);
-  font-size: 11.5px;
-  color: var(--t3);
-  line-height: 1.3;
-  margin-top: 1px;
+  font-size: 12px;
+  color: rgba(245,248,252,0.82);
+  margin: 2px 0 0;
 }
+.aw-map-head-type {
+  font-family: var(--body);
+  font-size: 11px;
+  color: rgba(245,248,252,0.55);
+  margin: 1px 0 12px;
+}
+
+/* Professional-looking pollutant checkbox toggles (radio underneath). */
+.aw-poll-check { margin-top: 2px; }
+.aw-poll-check .shiny-options-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+.aw-poll-check label.radio,
+.aw-poll-check label.radio-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 !important;
+  padding: 6px 10px 6px 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 4px;
+  color: rgba(245,248,252,0.85);
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.aw-poll-check label.radio:hover,
+.aw-poll-check label.radio-inline:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.32);
+  color: #f5f8fc;
+}
+.aw-poll-check input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border: 1.5px solid rgba(245,248,252,0.55);
+  border-radius: 3px;
+  background: transparent;
+  position: relative;
+  flex: 0 0 auto;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.aw-poll-check input[type="radio"]:checked {
+  background: var(--cyan);
+  border-color: var(--cyan);
+}
+.aw-poll-check input[type="radio"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px; top: -1px;
+  width: 4px; height: 9px;
+  border: solid #0b1424;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.aw-poll-check label:has(input[type="radio"]:checked) {
+  background: rgba(14,155,209,0.16);
+  border-color: rgba(14,155,209,0.65);
+  color: #f5f8fc;
+}
+.aw-poll-check .poll-short {
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.aw-poll-check .poll-name { display: none; }
 .aw-map-canvas .js-plotly-plot,
 .aw-map-canvas .plotly,
 .aw-map-canvas .plot-container {
   width: 100% !important; height: 100% !important;
 }
 #map_plot { position: absolute; inset: 0; z-index: 1; }
+
+/* Floating bottom-right map legend (colour ramp + quality pips). */
+.aw-mlegend {
+  position: absolute;
+  bottom: 14px; right: 14px;
+  z-index: 4;
+  min-width: 220px;
+  max-width: 260px;
+  background: rgba(14,19,28,0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  color: #f5f8fc;
+  font-family: var(--body);
+  box-shadow: 0 8px 22px rgba(0,0,0,0.30);
+}
+.aw-mlegend-title {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 11.5px;
+  color: #f5f8fc;
+  margin-bottom: 8px;
+  letter-spacing: 0.01em;
+}
+.aw-mlegend-ramp-wrap { margin-bottom: 8px; }
+.aw-mlegend-ramp {
+  display: block;
+  height: 8px;
+  border-radius: 999px;
+  width: 100%;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+}
+.aw-mlegend-ticks {
+  display: flex; justify-content: space-between;
+  margin-top: 4px;
+}
+.aw-mlegend-tick {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: rgba(245,248,252,0.78);
+  letter-spacing: 0.02em;
+}
+.aw-mlegend-quality {
+  display: flex; flex-wrap: wrap;
+  gap: 4px 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.10);
+}
+.aw-mlegend-qrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.aw-mlegend-qlabel {
+  font-family: var(--body);
+  font-size: 11px;
+  color: rgba(245,248,252,0.85);
+}
 
 /* Stack the layout on narrower screens. */
 @media (max-width: 1100px) {
@@ -489,10 +667,7 @@ a:hover { color: #9af0ff; }
   background: linear-gradient(90deg, transparent, var(--cyan-glow) 50%, transparent);
 }
 
-.aw-overlay-tl { top: 22px; left: 22px; width: 280px; }
-.aw-overlay-tr { top: 22px; right: 22px; width: 320px; }
-.aw-card-region { bottom: 22px; left: 22px; width: 320px; max-height: 360px; }
-.aw-overlay-br { bottom: 22px; right: 22px; width: 220px; }
+/* (legacy floating-overlay anchor rules removed — sidebar handles layout now) */
 /* GeoSlovenija context panel — bottom-centered, between the BL intel and
    BR legend stacks. Wide horizontal slot avoids overlap with the right-side
    telemetry/legend column. */
@@ -627,11 +802,9 @@ a:hover { color: #9af0ff; }
 .aw-tel-cell.aw-tel-warn::before  { background: var(--amber); }
 
 .aw-tel-label {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.15em;
+  font-family: var(--body);
+  font-size: 11px;
   color: var(--t4);
-  text-transform: uppercase;
 }
 .aw-tel-cell .value {
   display: block;
@@ -930,19 +1103,16 @@ a:hover { color: #9af0ff; }
   min-width: 0;
 }
 .aw-tl-meta-label {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.18em;
+  font-family: var(--body);
+  font-size: 11px;
   color: var(--t4);
-  text-transform: uppercase;
 }
 .aw-tl-meta-value {
-  font-family: var(--mono);
-  font-weight: 700;
+  font-family: var(--display);
+  font-weight: 600;
   font-size: 14px;
   color: var(--t1);
-  letter-spacing: 0.02em;
-  margin-top: 2px;
+  margin-top: 1px;
   font-variant-numeric: tabular-nums;
 }
 .aw-tl-meta-value .status {
@@ -1577,6 +1747,50 @@ a:hover { color: #9af0ff; }
 
 @media (max-width: 720px) {
   .aw-impact-grid { grid-template-columns: 1fr; }
+}
+
+
+/* ---------- 11b. Scope toggle (Regije / Občine) ------------------------ */
+.aw-scope-toggle { margin-bottom: 4px; }
+.aw-display-mode-wrap { margin-top: 4px; }
+.aw-card-sublabel {
+  font-family: var(--body);
+  font-size: 11px;
+  color: var(--t4);
+  margin-bottom: 3px;
+}
+/* By default everything renders. JS adds data-scope on <body> to switch. */
+body[data-scope="obcine"] .aw-scope-regije-only { display: none !important; }
+body[data-scope="regije"] .aw-scope-obcine-only { display: none !important; }
+/* Sensible defaults before the JS handler runs. */
+body:not([data-scope]) .aw-scope-obcine-only { display: none; }
+.aw-map-head-title-strong {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15px;
+  color: #f5f8fc;
+  line-height: 1.2;
+  margin: 2px 0 1px;
+}
+/* Wider grid for municipality metric chips (8 options). */
+.aw-poll-check-wide .shiny-options-group {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+.aw-poll-check-wide label.radio,
+.aw-poll-check-wide label.radio-inline {
+  padding: 5px 6px;
+  font-size: 11.5px;
+  justify-content: center;
+}
+.aw-mlegend-note {
+  font-family: var(--body);
+  font-size: 10.5px;
+  color: rgba(245,248,252,0.65);
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255,255,255,0.10);
 }
 
 
