@@ -2021,38 +2021,6 @@ app_ui = ui.page_fluid(
                                 class_="aw-slider-stage aw-scope-regije-only",
                             ),
 
-                            # ----- municipalities: year-slider meta + slider -----
-                            ui.div(
-                                ui.div("Leto", class_="aw-tl-meta-label"),
-                                ui.div(
-                                    ui.output_text(
-                                        "muni_year_value", inline=True
-                                    ),
-                                    class_="aw-tl-meta-value",
-                                ),
-                                class_="aw-tl-meta aw-scope-obcine-only",
-                            ),
-                            ui.div(
-                                ui.div("Razpon", class_="aw-tl-meta-label"),
-                                ui.div(
-                                    f"{_MUNI_YEARS[0]} – {_MUNI_YEARS[-1]}",
-                                    class_="aw-tl-meta-value",
-                                ),
-                                class_="aw-tl-meta aw-scope-obcine-only",
-                            ),
-                            ui.div(
-                                ui.input_slider(
-                                    "muni_year",
-                                    None,
-                                    min=_MUNI_YEARS[0],
-                                    max=_MUNI_YEARS[-1],
-                                    value=_MUNI_DEFAULT_YEAR,
-                                    step=1,
-                                    sep="",
-                                    ticks=True,
-                                ),
-                                class_="aw-slider-stage aw-scope-obcine-only",
-                            ),
                             class_="aw-timeline-dock",
                             id="aw-timeline",
                         ),
@@ -3008,13 +2976,6 @@ def server(input, output, session):
         if muni_uses_aq():
             return "Obdobje: julij 2022"
         return f"Leto: {muni_year()}"
-
-    @output
-    @render.text
-    def muni_year_value():
-        if muni_uses_aq():
-            return "julij 2022"
-        return str(muni_year())
 
     @output
     @render.text
