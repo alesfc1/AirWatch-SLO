@@ -2,7 +2,7 @@
 
 **Satelitski opazovalnik kakovosti zraka nad Slovenijo — dogodkovno usmerjena interaktivna analiza onesnaževal Sentinel-5P z umestitvijo v slovenski prostor.**
 
-AirWatch GeoSlovenija je raziskovalna nadzorna plošča, ki združuje (1) dnevne satelitske meritve onesnaževal misije ESA Sentinel-5P, (2) prostorske sloje slovenskih javnih registrov (eProstor) in (3) vremenske podatke Open-Meteo v eno samo, časovno-prostorsko orodje za analizo konkretnih okoljskih dogodkov v Sloveniji.
+AirWatch SLO je raziskovalna nadzorna plošča, ki združuje (1) dnevne satelitske meritve onesnaževal misije ESA Sentinel-5P, (2) prostorske sloje slovenskih javnih registrov (eProstor) in (3) vremenske podatke Open-Meteo v eno samo, časovno-prostorsko orodje za analizo konkretnih okoljskih dogodkov v Sloveniji.
 
 Aplikacija je zasnovana za hiter pregled: izberi dogodek, sproži časovno animacijo skozi mesec, primerjaj povprečja regij pred in med dogodkom ter preveri, kateri prostorski elementi (občine, prometna infrastruktura, industrijska območja) ležijo okoli prizorišča.
 
