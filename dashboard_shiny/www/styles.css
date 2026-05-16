@@ -1689,8 +1689,8 @@ a:hover { color: #9af0ff; }
   background: rgba(244,247,252,0.75);
 }
 .aw-impact-cell-during {
-  border-left-color: #d65336;
-  background: rgba(217,102,55,0.06);
+  border-left-color: #c8261a;
+  background: rgba(200,38,26,0.07);
 }
 .aw-impact-cell-label {
   font-family: var(--mono);
@@ -1730,40 +1730,42 @@ a:hover { color: #9af0ff; }
 
 .aw-impact-deltas {
   display: flex; flex-direction: column;
-  border: 1px solid var(--br-soft);
+  border: 1px solid rgba(200,38,26,0.35);
+  border-left: 4px solid #c8261a;
   border-radius: var(--r-sm);
   overflow: hidden;
-  background: rgba(244,247,252,0.75);
+  background: rgba(200,38,26,0.07);
 }
 .aw-impact-delta-row {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 12px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--br-soft);
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(200,38,26,0.18);
   align-items: center;
 }
 .aw-impact-delta-row:last-child { border-bottom: 0; }
 .aw-impact-delta-k {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11px;
+  font-weight: 700;
   letter-spacing: 0.12em;
-  color: var(--t3);
+  color: #8a1a14;
   text-transform: uppercase;
 }
 .aw-impact-delta-msg {
   font-family: var(--body);
   font-size: 12px;
-  color: var(--t4);
+  color: #8a1a14;
 }
 .aw-impact-pct {
   font-family: var(--display);
-  font-weight: 700;
-  font-size: 16px;
+  font-weight: 800;
+  font-size: 20px;
   letter-spacing: 0.01em;
 }
-.aw-impact-pct.up { color: #c93838; }
-.aw-impact-pct.down { color: #0e9bd1; }
+.aw-impact-pct.up { color: #c8261a; }
+.aw-impact-pct.down { color: #c8261a; }
 .aw-impact-pct.flat { color: var(--t3); }
 
 .aw-impact-msg {
