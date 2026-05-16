@@ -504,6 +504,14 @@ _EVENTS_FALLBACK = load_events_fallback()
 _REGIONS_GEOJSON = load_regions_geojson()
 _REGION_CENTROIDS = compute_region_centroids(_REGIONS_GEOJSON)
 
+# region_code -> region_name, used for in-map text labels at centroids.
+_REGION_NAMES: dict[str, str] = {
+    str((feat.get("properties") or {}).get("region_code") or ""):
+    str((feat.get("properties") or {}).get("region_name") or "")
+    for feat in (_REGIONS_GEOJSON.get("features") or [])
+    if (feat.get("properties") or {}).get("region_code")
+}
+
 # Eager-load optional GeoSlovenija / eProstor context layers. Missing files
 # return empty FeatureCollections so the UI stays robust.
 _CONTEXT_LAYERS: dict[str, dict] = load_context_layers()
@@ -540,24 +548,32 @@ _EVENTS_LIST = _resolve_events_list()
 
 
 def _compute_event_window(event: dict, max_day: int) -> dict | None:
-    """Return {start_pct, width_pct, label} for the timeline overlay."""
+    """Return {start_pct, label} for the timeline event-start marker.
+
+    Marks the slider precisely at ``event_start``. For multi-day events the
+    label says "Začetek dogodka" plus the date; for single-day events it
+    says "Dan dogodka". No width is returned — the UI draws a thin vertical
+    line at ``start_pct``, not a band.
+    """
     if not event or max_day <= 1:
         return None
     es_raw = event.get("event_start")
     ee_raw = event.get("event_end")
-    if not es_raw or not ee_raw:
+    if not es_raw:
         return None
     try:
         es_day = pd.to_datetime(es_raw).day
-        ee_day = pd.to_datetime(ee_raw).day
     except (ValueError, TypeError):
         return None
     denom = max(max_day - 1, 1)
-    start_pct = max(0.0, (es_day - 1) / denom * 100.0)
-    end_pct = min(100.0, (ee_day - 1) / denom * 100.0)
-    width_pct = max(end_pct - start_pct, 1.6)
-    label = "EVENT" if es_raw == ee_raw else "EVENT WINDOW"
-    return {"start_pct": start_pct, "width_pct": width_pct, "label": label}
+    start_pct = max(0.0, min(100.0, (es_day - 1) / denom * 100.0))
+    single_day = bool(ee_raw) and es_raw == ee_raw
+    short_label = "Dan dogodka" if single_day else "Začetek dogodka"
+    return {
+        "start_pct": start_pct,
+        "label": short_label,
+        "event_start": es_raw,
+    }
 
 
 def _empty_trend_figure() -> go.Figure:
@@ -918,6 +934,192 @@ EVENT_TYPE_FALLBACK_SLO: dict[str, str] = {
 }
 
 
+# Per-event Slovene narrative for the "Prostorska interpretacija" panel.
+# Each entry has:
+#   - `headline`: one short sentence framing what the spatial context is.
+#   - `paragraphs`: list of plain-text paragraphs about the surrounding space.
+#   - `relevant_layers`: ordered subset of CONTEXT_LAYER_FILES keys that are
+#     most informative for this event. The panel lists them with their
+#     availability status pulled from the already-loaded context layers.
+#
+# These texts describe the spatial setting only — they do not introduce any
+# new measurement data and do not claim causation.
+SPATIAL_INTERPRETATION_SLO: dict[str, dict] = {
+    "spar_fire_2025": {
+        "headline": (
+            "Logistični, poslovni in prometni kontekst v BTC območju "
+            "Ljubljane."
+        ),
+        "paragraphs": [
+            "Lokacija dogodka je v skladiščno-logističnem delu BTC ob "
+            "Letališki cesti, kjer se prepletajo trgovinska, poslovna in "
+            "skladiščna raba prostora.",
+            "V okolici se nahajata gosto prometno omrežje (mestne vpadnice "
+            "in obvoznica) ter večja industrijska in poslovna območja, kar "
+            "vpliva na ozadje signala onesnaževal v urbanem zraku.",
+        ],
+        "relevant_layers": ["industrial", "transport", "municipalities"],
+    },
+    "kras_fire_2022": {
+        "headline": (
+            "Lokalni in občinski kontekst Goriškega Krasa."
+        ),
+        "paragraphs": [
+            "Območje požara obsega gozdne in kraške površine v več občinah "
+            "Goriškega Krasa. Naselja so razmeroma redka, prevladujeta gozd "
+            "in mediteranska makija.",
+            "Občinske meje pomagajo umestiti dogodek v lokalni prostor, "
+            "industrijska območja so v tem območju omejena, prometna "
+            "infrastruktura pa redkejša kot v osrednji Sloveniji.",
+        ],
+        "relevant_layers": ["municipalities", "transport", "industrial"],
+    },
+    "cinkarna_celje_2019": {
+        "headline": (
+            "Industrijski in urbani kontekst Celja."
+        ),
+        "paragraphs": [
+            "Lokacija je v industrijski coni Cinkarne Celje (Kidričeva), "
+            "neposredno v urbanem tkivu Celja in v bližini stanovanjskih "
+            "predelov.",
+            "V okolici se prepletajo industrijska in poslovna območja, "
+            "mestne ceste in železniške povezave — značilen primer "
+            "soobstoja industrijske dejavnosti in mestnega prostora.",
+        ],
+        "relevant_layers": ["industrial", "municipalities", "transport"],
+    },
+}
+
+
+# Shared disclaimer line shown in both new panels.
+ASSOCIATION_NOTE_SLO = (
+    "Prikaz kaže časovno-prostorsko povezavo v obdobju dogodka, ne dokazuje "
+    "vzročnosti brez ARSO in vremenskih podatkov."
+)
+
+
+def _compute_event_impact(
+    df: pd.DataFrame,
+    event: dict,
+    region_code: str,
+) -> dict:
+    """Compute before/during/after means and percent changes for one event.
+
+    Splits the per-event/per-pollutant daily DataFrame by date relative to
+    ``event_start`` / ``event_end`` (inclusive). When ``region_code`` is empty,
+    averages across all available regions (Slovenia composite).
+
+    Returns a dict with:
+        status: one of
+            "ok"          — before, during and after all have data.
+            "full_month"  — before AND after are empty (event window covers
+                             the whole analysis range, e.g. Cinkarna Celje).
+            "no_event"    — event_start/event_end missing from metadata.
+            "no_data"     — df is empty or no usable values at all.
+            "no_before"   — before is empty (cannot compute % vs before).
+            "no_after"    — after is empty (cannot compute % vs before for after).
+        scope_label:        "Slovenija" or "<region_name>"
+        n_before/during/after: row counts in each period
+        mean_before/during/after: float | None
+        change_during_vs_before_pct: float | None
+        change_after_vs_before_pct: float | None
+        event_start / event_end: ISO date strings (echoed for the UI)
+    """
+    if not event:
+        return {"status": "no_event", "scope_label": "Slovenija"}
+    es = event.get("event_start")
+    ee = event.get("event_end")
+    if not es or not ee:
+        return {"status": "no_event", "scope_label": "Slovenija"}
+
+    scope_label = "Slovenija"
+    if region_code and not df.empty:
+        sub = df[df["region_code"] == region_code]
+        if not sub.empty:
+            scope_label = str(sub["region_name"].iloc[0])
+            df = sub
+        else:
+            # Region not present in this event slice — fall back to composite.
+            region_code = ""
+
+    if df.empty or "value_mean" not in df.columns:
+        return {
+            "status": "no_data",
+            "scope_label": scope_label,
+            "event_start": es, "event_end": ee,
+        }
+
+    # Date column is "YYYY-MM-DD" — string compare is safe for ISO dates.
+    dates = df["date"].astype(str)
+    before_mask = dates < es
+    after_mask = dates > ee
+    during_mask = (~before_mask) & (~after_mask)
+
+    before_vals = df.loc[before_mask, "value_mean"]
+    during_vals = df.loc[during_mask, "value_mean"]
+    after_vals = df.loc[after_mask, "value_mean"]
+
+    def _mean_or_none(s: pd.Series) -> float | None:
+        s = s.dropna()
+        if s.empty:
+            return None
+        return float(s.mean())
+
+    mean_before = _mean_or_none(before_vals)
+    mean_during = _mean_or_none(during_vals)
+    mean_after = _mean_or_none(after_vals)
+
+    # Full-month event window: before AND after slices are empty (e.g.
+    # Cinkarna Celje where the whole month is the "event window").
+    if before_vals.empty and after_vals.empty:
+        return {
+            "status": "full_month",
+            "scope_label": scope_label,
+            "event_start": es, "event_end": ee,
+            "n_before": 0,
+            "n_during": int(during_vals.notna().sum()),
+            "n_after": 0,
+            "mean_before": None,
+            "mean_during": mean_during,
+            "mean_after": None,
+            "change_during_vs_before_pct": None,
+            "change_after_vs_before_pct": None,
+        }
+
+    def _pct(numer: float | None, denom: float | None) -> float | None:
+        if numer is None or denom is None:
+            return None
+        if denom == 0:
+            return None
+        return (numer - denom) / denom * 100.0
+
+    change_during = _pct(mean_during, mean_before)
+    change_after = _pct(mean_after, mean_before)
+
+    if mean_before is None and mean_during is None and mean_after is None:
+        status = "no_data"
+    elif mean_before is None:
+        status = "no_before"
+    elif mean_after is None:
+        status = "no_after"
+    else:
+        status = "ok"
+
+    return {
+        "status": status,
+        "scope_label": scope_label,
+        "event_start": es, "event_end": ee,
+        "n_before": int(before_vals.notna().sum()),
+        "n_during": int(during_vals.notna().sum()),
+        "n_after": int(after_vals.notna().sum()),
+        "mean_before": mean_before,
+        "mean_during": mean_during,
+        "mean_after": mean_after,
+        "change_during_vs_before_pct": change_during,
+        "change_after_vs_before_pct": change_after,
+    }
+
+
 def _slovene_date(date_str: str) -> str:
     """Format an ISO date string as e.g. '14. december 2025'."""
     if not date_str:
@@ -1210,254 +1412,229 @@ app_ui = ui.page_fluid(
         ui.tags.main(
             ui.div(
 
-                # ---- Map canvas with floating overlays -------------------
+                # Two-column layout: map + timeline on the left, side rail
+                # with controls and readouts on the right.
                 ui.div(
-                    # subtle grid + noise overlay
-                    ui.span(class_="aw-grid-overlay"),
-                    # decorative corner brackets
-                    ui.span(class_="aw-corner tl"),
-                    ui.span(class_="aw-corner tr"),
-                    ui.span(class_="aw-corner bl"),
-                    ui.span(class_="aw-corner br"),
 
-                    # Plotly mapbox is rendered directly into this static div
-                    # by the `map_figure` custom message — bypasses shinywidgets
-                    # so every day-tick triggers a fresh Plotly.newPlot and the
-                    # choropleth fill always repaints.
-                    ui.tags.div(id="map_plot"),
-
-                    # ---- Overlay TL: mission heading + mode toggle ----
+                    # ---- LEFT COLUMN: map + timeline -------------------
                     ui.div(
                         ui.div(
-                            ui.span("SCAN", class_="aw-ov-tag"),
                             ui.div(
-                                ui.output_text("map_title", inline=True),
-                                class_="aw-ov-title",
-                            ),
-                            ui.div(
-                                ui.output_text("map_subtitle", inline=True),
-                                class_="aw-ov-sub",
-                            ),
-                            class_="aw-ov-head",
-                        ),
-                        ui.div(
-                            ui.div("NAČIN PRIKAZA", class_="aw-ov-mini-label"),
-                            ui.input_radio_buttons(
-                                "display_mode",
-                                None,
-                                choices={
-                                    "absolute": ui.tags.span("Dejanske"),
-                                    "anomaly":  ui.tags.span("Odstopanje"),
-                                },
-                                selected="absolute",
-                                inline=True,
-                            ),
-                            class_="aw-mode-toggle",
-                        ),
-                        class_="aw-overlay aw-overlay-tl",
-                    ),
-
-                    # ---- Overlay TR: telemetry strip ----
-                    ui.div(
-                        ui.div(
-                            ui.span("TELEMETRIJA", class_="aw-ov-tag"),
-                            ui.span(
-                                ui.output_text("selected_date_compact", inline=True),
-                                class_="aw-ov-mini-date",
-                            ),
-                            class_="aw-ov-head",
-                        ),
-                        ui.div(
-                            ui.div(
-                                ui.div("Povprečje SLO", class_="aw-tel-label"),
-                                ui.output_ui("t_slovenia_avg", inline=True),
-                                class_="aw-tel-cell aw-tel-primary",
-                            ),
-                            ui.div(
-                                ui.div("Najvišja", class_="aw-tel-label"),
-                                ui.output_ui("t_highest", inline=True),
-                                class_="aw-tel-cell aw-tel-alert",
-                            ),
-                            ui.div(
-                                ui.div("Najnižja", class_="aw-tel-label"),
-                                ui.output_ui("t_lowest", inline=True),
-                                class_="aw-tel-cell aw-tel-cool",
-                            ),
-                            ui.div(
-                                ui.div("Regije", class_="aw-tel-label"),
-                                ui.output_ui("t_valid", inline=True),
-                                class_="aw-tel-cell",
-                            ),
-                            ui.div(
-                                ui.div("Kakovost", class_="aw-tel-label"),
-                                ui.output_ui("t_quality", inline=True),
-                                class_="aw-tel-cell aw-tel-warn",
-                            ),
-                            class_="aw-tel-grid",
-                        ),
-                        class_="aw-overlay aw-overlay-tr",
-                    ),
-
-                    # ---- Overlay BL: region intel ----
-                    ui.div(
-                        ui.div(
-                            ui.span("INTEL", class_="aw-ov-tag"),
-                            ui.div("Izbrana regija", class_="aw-ov-title-sm"),
-                            class_="aw-ov-head",
-                        ),
-                        ui.input_select(
-                            "region_code",
-                            None,
-                            choices={"": "Vse regije (povprečje Slovenije)"},
-                            selected="",
-                        ),
-                        ui.output_ui("region_detail"),
-                        class_="aw-overlay aw-overlay-bl",
-                    ),
-
-                    # ---- Overlay BR: color legend + quality legend ----
-                    ui.div(
-                        ui.div(
-                            ui.span("LEGENDA", class_="aw-ov-tag"),
-                            class_="aw-ov-head",
-                        ),
-                        # Color ramp (low → high)
-                        ui.div(
-                            ui.div("Koncentracija", class_="aw-leg-title"),
-                            ui.span(class_="aw-leg-ramp"),
-                            ui.div(
-                                ui.span("nizka"),
-                                ui.span("srednja"),
-                                ui.span("visoka"),
-                                class_="aw-leg-labels",
-                            ),
-                            class_="aw-leg-color",
-                        ),
-                        # Quality legend
-                        ui.div(
-                            ui.div("Kakovost meritve", class_="aw-leg-title"),
-                            ui.div(
-                                ui.span(class_="aw-qpip good"),
-                                ui.span("dobra"),
-                                class_="aw-qrow",
-                            ),
-                            ui.div(
-                                ui.span(class_="aw-qpip partial"),
-                                ui.span("delna"),
-                                class_="aw-qrow",
-                            ),
-                            ui.div(
-                                ui.span(class_="aw-qpip missing"),
-                                ui.span("ni podatkov"),
-                                class_="aw-qrow",
-                            ),
-                            class_="aw-leg-quality",
-                        ),
-                        # Decorative coords readout
-                        ui.div(
-                            ui.span("CRS", class_="k"),
-                            ui.span("EPSG:4326", class_="v"),
-                            ui.span("·", class_="dot"),
-                            ui.span("46.15° N · 14.99° E", class_="v"),
-                            class_="aw-leg-coords",
-                        ),
-                        class_="aw-overlay aw-overlay-br",
-                    ),
-
-                    # ---- Overlay CR: GeoSlovenija / eProstor context ----
-                    # Floating panel with togglable spatial-context layers.
-                    # Sentinel-5P data shows pollution; these layers show what
-                    # is physically present in the space around the event.
-                    ui.div(
-                        ui.div(
-                            ui.span("KONTEKST", class_="aw-ov-tag"),
-                            ui.div(
-                                "GeoSlovenija kontekst",
-                                class_="aw-ov-title-sm",
-                            ),
-                            class_="aw-ov-head",
-                        ),
-                        ui.div(
-                            "Satelitski podatki pokažejo, kako se signal "
-                            "spreminja. GeoSlovenija/eProstor sloji pokažejo, "
-                            "kaj je v prostoru okoli dogodka.",
-                            class_="aw-ctx-explain",
-                        ),
-                        ui.div(
-                            # Always-on event location row (rendered as a
-                            # fixed checkbox so the user can hide the marker
-                            # for screenshots if they want).
-                            ui.div(
-                                ui.input_checkbox(
-                                    "ctx_event",
-                                    "Lokacija dogodka",
-                                    value=True,
+                                ui.div(
+                                    ui.output_text("map_title", inline=True),
+                                    class_="aw-map-head-title",
                                 ),
+                                ui.div(
+                                    ui.output_text("map_subtitle", inline=True),
+                                    class_="aw-map-head-sub",
+                                ),
+                                class_="aw-map-head",
+                            ),
+                            # Plotly mapbox is rendered into this static div
+                            # by the `map_figure` custom message.
+                            ui.tags.div(id="map_plot"),
+                            class_="aw-map-canvas",
+                            id="aw-map",
+                        ),
+
+                        # ---- Day timeline dock (under map) -------------
+                        ui.div(
+                            ui.tags.button(
+                                ui.tags.span(class_="play-icon"),
+                                ui.tags.span("Predvajaj", class_="play-label"),
+                                id="aw-play-toggle",
+                                type="button",
+                                class_="aw-play-btn",
+                                **{"aria-label": "Predvajaj animacijo skozi mesec"},
+                            ),
+                            ui.div(
+                                ui.div("Datum", class_="aw-tl-meta-label"),
+                                ui.div(
+                                    ui.output_text("selected_date_display", inline=True),
+                                    class_="aw-tl-meta-value",
+                                ),
+                                class_="aw-tl-meta",
+                            ),
+                            ui.div(
+                                ui.div("Razpon", class_="aw-tl-meta-label"),
+                                ui.div(
+                                    ui.output_ui("day_counter_display", inline=True),
+                                    class_="aw-tl-meta-value",
+                                ),
+                                class_="aw-tl-meta",
+                            ),
+                            ui.div(
+                                ui.output_ui("event_window_overlay"),
+                                ui.input_slider(
+                                    "day_index",
+                                    None,
+                                    min=1,
+                                    max=31,
+                                    value=1,
+                                    step=1,
+                                    ticks=True,
+                                ),
+                                class_="aw-slider-stage",
+                            ),
+                            class_="aw-timeline-dock",
+                            id="aw-timeline",
+                        ),
+                        class_="aw-map-column",
+                    ),
+
+                    # ---- RIGHT COLUMN: side rail of cards --------------
+                    ui.div(
+
+                        # Card: display mode toggle
+                        ui.div(
+                            ui.div("Način prikaza", class_="aw-card-title"),
+                            ui.div(
+                                ui.input_radio_buttons(
+                                    "display_mode",
+                                    None,
+                                    choices={
+                                        "absolute": ui.tags.span("Dejanske"),
+                                        "anomaly":  ui.tags.span("Odstopanje"),
+                                    },
+                                    selected="absolute",
+                                    inline=True,
+                                ),
+                                class_="aw-mode-toggle",
+                            ),
+                            class_="aw-card aw-card-mode",
+                        ),
+
+                        # Card: telemetry strip
+                        ui.div(
+                            ui.div(
+                                ui.div("Telemetrija", class_="aw-card-title"),
                                 ui.span(
-                                    "iz metapodatkov",
-                                    class_="aw-ctx-source",
+                                    ui.output_text("selected_date_compact", inline=True),
+                                    class_="aw-card-meta",
                                 ),
-                                class_="aw-ctx-row aw-ctx-row-event",
+                                class_="aw-card-head",
                             ),
-                            _ctx_layer_row(
-                                "ctx_municipalities", "municipalities",
+                            ui.div(
+                                ui.div(
+                                    ui.div("Povprečje SLO", class_="aw-tel-label"),
+                                    ui.output_ui("t_slovenia_avg", inline=True),
+                                    class_="aw-tel-cell aw-tel-primary",
+                                ),
+                                ui.div(
+                                    ui.div("Najvišja", class_="aw-tel-label"),
+                                    ui.output_ui("t_highest", inline=True),
+                                    class_="aw-tel-cell aw-tel-alert",
+                                ),
+                                ui.div(
+                                    ui.div("Najnižja", class_="aw-tel-label"),
+                                    ui.output_ui("t_lowest", inline=True),
+                                    class_="aw-tel-cell aw-tel-cool",
+                                ),
+                                ui.div(
+                                    ui.div("Regije", class_="aw-tel-label"),
+                                    ui.output_ui("t_valid", inline=True),
+                                    class_="aw-tel-cell",
+                                ),
+                                ui.div(
+                                    ui.div("Kakovost", class_="aw-tel-label"),
+                                    ui.output_ui("t_quality", inline=True),
+                                    class_="aw-tel-cell aw-tel-warn",
+                                ),
+                                class_="aw-tel-grid",
                             ),
-                            _ctx_layer_row(
-                                "ctx_transport", "transport",
-                            ),
-                            _ctx_layer_row(
-                                "ctx_industrial", "industrial",
-                            ),
-                            class_="aw-ctx-list",
+                            class_="aw-card",
                         ),
-                        class_="aw-overlay aw-overlay-cr",
+
+                        # Card: region selector + detail
+                        ui.div(
+                            ui.div("Izbrana regija", class_="aw-card-title"),
+                            ui.input_select(
+                                "region_code",
+                                None,
+                                choices={"": "Vse regije (povprečje Slovenije)"},
+                                selected="",
+                            ),
+                            ui.output_ui("region_detail"),
+                            class_="aw-card aw-card-region",
+                        ),
+
+                        # Card: color + quality legend
+                        ui.div(
+                            ui.div("Legenda", class_="aw-card-title"),
+                            ui.div(
+                                ui.div("Koncentracija", class_="aw-leg-title"),
+                                ui.span(class_="aw-leg-ramp"),
+                                ui.div(
+                                    ui.span("nizka"),
+                                    ui.span("srednja"),
+                                    ui.span("visoka"),
+                                    class_="aw-leg-labels",
+                                ),
+                                class_="aw-leg-color",
+                            ),
+                            ui.div(
+                                ui.div("Kakovost meritve", class_="aw-leg-title"),
+                                ui.div(
+                                    ui.span(class_="aw-qpip good"),
+                                    ui.span("dobra"),
+                                    class_="aw-qrow",
+                                ),
+                                ui.div(
+                                    ui.span(class_="aw-qpip partial"),
+                                    ui.span("delna"),
+                                    class_="aw-qrow",
+                                ),
+                                ui.div(
+                                    ui.span(class_="aw-qpip missing"),
+                                    ui.span("ni podatkov"),
+                                    class_="aw-qrow",
+                                ),
+                                class_="aw-leg-quality",
+                            ),
+                            class_="aw-card",
+                        ),
+
+                        # Card: GeoSlovenija context layers
+                        ui.div(
+                            ui.div("GeoSlovenija konteksti", class_="aw-card-title"),
+                            ui.div(
+                                "Satelitski podatki pokažejo, kako se signal "
+                                "spreminja. Sloji eProstor in geo-peskovnik "
+                                "pokažejo, kaj je v prostoru okoli dogodka.",
+                                class_="aw-ctx-explain",
+                            ),
+                            ui.div(
+                                ui.div(
+                                    ui.input_checkbox(
+                                        "ctx_event",
+                                        "Lokacija dogodka",
+                                        value=True,
+                                    ),
+                                    ui.span(
+                                        "iz metapodatkov",
+                                        class_="aw-ctx-source",
+                                    ),
+                                    class_="aw-ctx-row aw-ctx-row-event",
+                                ),
+                                _ctx_layer_row(
+                                    "ctx_municipalities", "municipalities",
+                                ),
+                                _ctx_layer_row(
+                                    "ctx_transport", "transport",
+                                ),
+                                _ctx_layer_row(
+                                    "ctx_industrial", "industrial",
+                                ),
+                                class_="aw-ctx-list",
+                            ),
+                            class_="aw-card",
+                        ),
+
+                        class_="aw-side-rail",
+                        id="aw-side-rail",
                     ),
 
-                    class_="aw-map-canvas",
-                    id="aw-map",
-                ),
-
-                # ---- Day timeline dock (under map) -----------------------
-                ui.div(
-                    ui.tags.button(
-                        ui.tags.span(class_="play-icon"),
-                        ui.tags.span("Predvajaj", class_="play-label"),
-                        id="aw-play-toggle",
-                        type="button",
-                        class_="aw-play-btn",
-                        **{"aria-label": "Predvajaj animacijo skozi mesec"},
-                    ),
-                    ui.div(
-                        ui.div("DATUM", class_="aw-tl-meta-label"),
-                        ui.div(
-                            ui.output_text("selected_date_display", inline=True),
-                            class_="aw-tl-meta-value",
-                        ),
-                        class_="aw-tl-meta",
-                    ),
-                    ui.div(
-                        ui.div("RAZPON", class_="aw-tl-meta-label"),
-                        ui.div(
-                            ui.output_ui("day_counter_display", inline=True),
-                            class_="aw-tl-meta-value",
-                        ),
-                        class_="aw-tl-meta",
-                    ),
-                    ui.div(
-                        ui.output_ui("event_window_overlay"),
-                        ui.input_slider(
-                            "day_index",
-                            None,
-                            min=1,
-                            max=31,
-                            value=1,
-                            step=1,
-                            ticks=True,
-                        ),
-                        class_="aw-slider-stage",
-                    ),
-                    class_="aw-timeline-dock",
-                    id="aw-timeline",
+                    class_="aw-stage-grid",
                 ),
 
                 class_="aw-stage",
@@ -1468,7 +1645,6 @@ app_ui = ui.page_fluid(
         # ===== 3. TREND SECTION (below the map) ===========================
         ui.tags.section(
             ui.div(
-                ui.span("02", class_="aw-sec-num"),
                 ui.div("Trend skozi mesec", class_="aw-sec-title"),
                 ui.div(
                     "Cyan črta je dnevno povprečje, senčni pas je razpon "
@@ -1478,10 +1654,6 @@ app_ui = ui.page_fluid(
                 class_="aw-sec-head",
             ),
             ui.div(
-                ui.span(class_="aw-corner tl"),
-                ui.span(class_="aw-corner tr"),
-                ui.span(class_="aw-corner bl"),
-                ui.span(class_="aw-corner br"),
                 output_widget("trend_plot"),
                 class_="aw-trend-wrap",
             ),
@@ -1489,11 +1661,42 @@ app_ui = ui.page_fluid(
             id="aw-trend",
         ),
 
+        # ===== 3. EVENT IMPACT + SPATIAL INTERPRETATION ===================
+        ui.div(
+            ui.div(
+                ui.div(
+                    ui.div("Vpliv dogodka", class_="aw-sec-title"),
+                    ui.div(
+                        "Primerjava povprečij pred dogodkom, med njim in po "
+                        "njem za izbrano regijo in onesnaževalo.",
+                        class_="aw-sec-sub",
+                    ),
+                    class_="aw-sec-head",
+                ),
+                ui.output_ui("impact_panel"),
+                class_="aw-panel",
+            ),
+            ui.div(
+                ui.div(
+                    ui.div("Prostorska interpretacija", class_="aw-sec-title"),
+                    ui.div(
+                        "Kaj je v prostoru okoli dogodka — pomaga razumeti "
+                        "satelitski signal v kontekstu.",
+                        class_="aw-sec-sub",
+                    ),
+                    class_="aw-sec-head",
+                ),
+                ui.output_ui("spatial_panel"),
+                class_="aw-panel",
+            ),
+            class_="aw-method-grid",
+            id="aw-impact",
+        ),
+
         # ===== 4. METHODOLOGY + EVENT META ================================
         ui.div(
             ui.div(
                 ui.div(
-                    ui.span("03", class_="aw-sec-num"),
                     ui.div("Kaj prikazuje ta nadzorna plošča",
                            class_="aw-sec-title"),
                     ui.div(
@@ -1508,7 +1711,6 @@ app_ui = ui.page_fluid(
             ),
             ui.div(
                 ui.div(
-                    ui.span("04", class_="aw-sec-num"),
                     ui.div("Metapodatki misije", class_="aw-sec-title"),
                     ui.div(
                         ui.output_text("pollutant_subtitle", inline=True),
@@ -1888,17 +2090,21 @@ def server(input, output, session):
     @output
     @render.ui
     def event_window_overlay():
-        """Position a highlighted band over the slider track (precomputed)."""
+        """Thin vertical marker on the slider at the exact event-start day."""
         ew = event_cache_entry().get("event_window")
         if not ew:
             return ui.div()
+        date_label = _slovene_date(ew.get("event_start", ""))
         return ui.div(
-            class_="aw-event-window-overlay",
-            **{"data-label": ew["label"]},
+            ui.div(
+                ui.div(ew["label"], class_="aw-event-marker-title"),
+                ui.div(date_label, class_="aw-event-marker-date"),
+                class_="aw-event-marker-pill",
+            ),
+            class_="aw-event-marker",
             style=(
                 # 0.985 + 0.8% offset compensates for ionRangeSlider handle padding
                 f"left: calc({ew['start_pct']:.2f}% * 0.985 + 0.8%);"
-                f" width: calc({ew['width_pct']:.2f}% * 0.985);"
             ),
         )
 
@@ -2079,6 +2285,31 @@ def server(input, output, session):
                 name="",
             )
         )
+
+        # ---- Layer 2.5: region-name text labels at each centroid ----
+        if _REGION_CENTROIDS:
+            lab_lats: list[float] = []
+            lab_lons: list[float] = []
+            lab_texts: list[str] = []
+            for rc, (lat, lon) in _REGION_CENTROIDS.items():
+                name = _REGION_NAMES.get(rc, rc)
+                if not name:
+                    continue
+                lab_lats.append(lat); lab_lons.append(lon); lab_texts.append(name)
+            if lab_lats:
+                fig.add_trace(go.Scattermapbox(
+                    lat=lab_lats, lon=lab_lons,
+                    mode="text",
+                    text=lab_texts,
+                    textfont=dict(
+                        family="Manrope, system-ui, sans-serif",
+                        size=11,
+                        color="#0b1424",
+                    ),
+                    textposition="middle center",
+                    hoverinfo="skip",
+                    showlegend=False,
+                ))
 
         # ---- Layer 3: strong highlight ring on selected region's centroid
         if selected_region and selected_region in _REGION_CENTROIDS:
@@ -2488,6 +2719,290 @@ def server(input, output, session):
         except Exception:
             # Session can be torn down mid-animation; swallow gracefully.
             pass
+
+    # -------- EVENT IMPACT PANEL ------------------------------------------
+
+    @output
+    @render.ui
+    def impact_panel():
+        ev = selected_event()
+        df = event_df()
+        region_code = input.region_code() if "region_code" in input else ""
+        spec = pollutant_spec()
+        unit = spec.get("display_unit", NO2_UNIT)
+        p_short = spec.get("short", "NO₂")
+        decimals = int(spec.get("decimals", 1))
+
+        def _note() -> ui.Tag:
+            return ui.div(ASSOCIATION_NOTE_SLO, class_="aw-impact-note")
+
+        if not ev:
+            return ui.div(
+                ui.div(
+                    "Izberi primer zgoraj, da prikažeš primerjavo pred / med / po dogodku.",
+                    class_="aw-impact-msg",
+                ),
+                _note(),
+                class_="aw-impact",
+            )
+
+        impact = _compute_event_impact(df, ev, region_code)
+        status = impact.get("status")
+        scope = impact.get("scope_label", "Slovenija")
+
+        # Header: scope (region or Slovenija) + window summary
+        header = ui.div(
+            ui.div(
+                ui.span("OBSEG", class_="aw-impact-k"),
+                ui.span(
+                    "Slovenija (povprečje regij)" if scope == "Slovenija"
+                    else scope,
+                    class_="aw-impact-v",
+                ),
+                class_="aw-impact-row",
+            ),
+            ui.div(
+                ui.span("DOGODEK", class_="aw-impact-k"),
+                ui.span(_slovene_window(ev) or "—", class_="aw-impact-v"),
+                class_="aw-impact-row",
+            ),
+            ui.div(
+                ui.span("ONESNAŽEVALO", class_="aw-impact-k"),
+                ui.span(
+                    f"{spec.get('name_slo', p_short)} ({p_short}) · {unit}",
+                    class_="aw-impact-v",
+                ),
+                class_="aw-impact-row",
+            ),
+            class_="aw-impact-header",
+        )
+
+        if status == "no_event":
+            return ui.div(
+                header,
+                ui.div(
+                    "Za ta primer ni določenega obdobja dogodka, zato "
+                    "primerjava pred / med / po ni mogoča.",
+                    class_="aw-impact-msg",
+                ),
+                _note(),
+                class_="aw-impact",
+            )
+
+        if status == "full_month":
+            return ui.div(
+                header,
+                ui.div(
+                    "Ta primer je industrijska študija za celoten mesec, "
+                    "zato primerjava pred/med/po ni uporabljena.",
+                    class_="aw-impact-msg aw-impact-msg-info",
+                ),
+                _note(),
+                class_="aw-impact",
+            )
+
+        if status == "no_data":
+            return ui.div(
+                header,
+                ui.div(
+                    "Za izbrano kombinacijo onesnaževala in regije ni "
+                    "razpoložljivih meritev v obdobju primera.",
+                    class_="aw-impact-msg",
+                ),
+                _note(),
+                class_="aw-impact",
+            )
+
+        def _fmt_val(v: float | None) -> ui.Tag:
+            if v is None or pd.isna(v):
+                return ui.span("ni podatka", class_="aw-impact-na")
+            return ui.span(
+                f"{v:.{decimals}f}",
+                ui.span(unit, class_="aw-impact-unit"),
+                class_="aw-impact-num",
+            )
+
+        def _fmt_pct(p: float | None) -> ui.Tag:
+            if p is None or pd.isna(p):
+                return ui.span("ni primerjave", class_="aw-impact-na")
+            sign = "+" if p > 0 else ("" if p == 0 else "")
+            cls = (
+                "aw-impact-pct up" if p > 0
+                else ("aw-impact-pct down" if p < 0 else "aw-impact-pct flat")
+            )
+            return ui.span(f"{sign}{p:.1f}%", class_=cls)
+
+        n_b = impact.get("n_before", 0)
+        n_d = impact.get("n_during", 0)
+        n_a = impact.get("n_after", 0)
+
+        cells = ui.div(
+            ui.div(
+                ui.div("Pred dogodkom", class_="aw-impact-cell-label"),
+                ui.div(_fmt_val(impact.get("mean_before")),
+                       class_="aw-impact-cell-value"),
+                ui.div(f"{n_b} dnevnih meritev", class_="aw-impact-cell-sub"),
+                class_="aw-impact-cell",
+            ),
+            ui.div(
+                ui.div("Med dogodkom", class_="aw-impact-cell-label"),
+                ui.div(_fmt_val(impact.get("mean_during")),
+                       class_="aw-impact-cell-value"),
+                ui.div(f"{n_d} dnevnih meritev", class_="aw-impact-cell-sub"),
+                class_="aw-impact-cell aw-impact-cell-during",
+            ),
+            ui.div(
+                ui.div("Po dogodku", class_="aw-impact-cell-label"),
+                ui.div(_fmt_val(impact.get("mean_after")),
+                       class_="aw-impact-cell-value"),
+                ui.div(f"{n_a} dnevnih meritev", class_="aw-impact-cell-sub"),
+                class_="aw-impact-cell",
+            ),
+            class_="aw-impact-grid",
+        )
+
+        deltas_rows = []
+        if impact.get("mean_before") is None:
+            deltas_rows.append(ui.div(
+                ui.span("Sprememba med vs. pred", class_="aw-impact-delta-k"),
+                ui.span(
+                    "Pred dogodkom ni razpoložljivih meritev — primerjava ni mogoča.",
+                    class_="aw-impact-delta-msg",
+                ),
+                class_="aw-impact-delta-row",
+            ))
+        else:
+            deltas_rows.append(ui.div(
+                ui.span("Sprememba med vs. pred", class_="aw-impact-delta-k"),
+                _fmt_pct(impact.get("change_during_vs_before_pct")),
+                class_="aw-impact-delta-row",
+            ))
+            if impact.get("mean_after") is None:
+                deltas_rows.append(ui.div(
+                    ui.span("Sprememba po vs. pred",
+                            class_="aw-impact-delta-k"),
+                    ui.span(
+                        "Po dogodku ni razpoložljivih meritev — primerjava ni mogoča.",
+                        class_="aw-impact-delta-msg",
+                    ),
+                    class_="aw-impact-delta-row",
+                ))
+            else:
+                deltas_rows.append(ui.div(
+                    ui.span("Sprememba po vs. pred",
+                            class_="aw-impact-delta-k"),
+                    _fmt_pct(impact.get("change_after_vs_before_pct")),
+                    class_="aw-impact-delta-row",
+                ))
+
+        deltas = ui.div(*deltas_rows, class_="aw-impact-deltas")
+
+        return ui.div(
+            header,
+            cells,
+            deltas,
+            _note(),
+            class_="aw-impact",
+        )
+
+    # -------- SPATIAL INTERPRETATION PANEL --------------------------------
+
+    @output
+    @render.ui
+    def spatial_panel():
+        ev = selected_event()
+        if not ev:
+            return ui.div(
+                ui.div(
+                    "Izberi primer zgoraj, da prikažeš prostorsko "
+                    "interpretacijo.",
+                    class_="aw-spatial-msg",
+                ),
+                class_="aw-spatial",
+            )
+
+        eid = str(ev.get("event_id") or "")
+        copy = _event_copy(ev)
+        narrative = SPATIAL_INTERPRETATION_SLO.get(eid)
+
+        # Header line
+        loc_name = ev.get("event_location_name") or "—"
+        header = ui.div(
+            ui.div(
+                ui.span("PRIMER", class_="aw-spatial-k"),
+                ui.span(copy["title"], class_="aw-spatial-v"),
+                class_="aw-spatial-row",
+            ),
+            ui.div(
+                ui.span("LOKACIJA", class_="aw-spatial-k"),
+                ui.span(loc_name, class_="aw-spatial-v"),
+                class_="aw-spatial-row",
+            ),
+            class_="aw-spatial-header",
+        )
+
+        if not narrative:
+            return ui.div(
+                header,
+                ui.div(
+                    "Za ta primer nimamo zapisane prostorske interpretacije.",
+                    class_="aw-spatial-msg",
+                ),
+                class_="aw-spatial",
+            )
+
+        headline = ui.div(narrative["headline"], class_="aw-spatial-headline")
+        paragraphs = ui.div(
+            *[ui.tags.p(p, class_="aw-spatial-paragraph")
+              for p in narrative.get("paragraphs", [])],
+            class_="aw-spatial-body",
+        )
+
+        # Layers list — use availability flags computed at import.
+        layer_rows: list[ui.Tag] = []
+        for key in narrative.get("relevant_layers", []):
+            meta = CONTEXT_LAYER_META.get(key)
+            if not meta:
+                continue
+            available = _CONTEXT_LAYER_AVAILABLE.get(key, False)
+            status_label = (
+                _resolved_layer_source(key) if available else "Sloj ni naložen"
+            )
+            status_cls = (
+                "aw-spatial-layer-status"
+                if available
+                else "aw-spatial-layer-status missing"
+            )
+            row_cls = (
+                "aw-spatial-layer"
+                if available
+                else "aw-spatial-layer disabled"
+            )
+            layer_rows.append(ui.div(
+                ui.span(meta["label"], class_="aw-spatial-layer-label"),
+                ui.span(status_label, class_=status_cls),
+                class_=row_cls,
+            ))
+
+        layers_block = (
+            ui.div(
+                ui.div("Razpoložljivi prostorski sloji",
+                       class_="aw-spatial-layers-title"),
+                ui.div(*layer_rows, class_="aw-spatial-layers-list"),
+                class_="aw-spatial-layers",
+            )
+            if layer_rows
+            else ui.div()
+        )
+
+        return ui.div(
+            header,
+            headline,
+            paragraphs,
+            layers_block,
+            ui.div(ASSOCIATION_NOTE_SLO, class_="aw-spatial-note"),
+            class_="aw-spatial",
+        )
 
     # -------- METHODOLOGY + EVENT META -------------------------------------
 
