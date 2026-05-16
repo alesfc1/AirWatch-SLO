@@ -3194,16 +3194,32 @@ def server(input, output, session):
             class_="aw-mlegend",
         )
 
-    # The map figure is rebuilt on every relevant input change INCLUDING the
-    # day slider, so the choropleth fill always matches the current day's
-    # values. mapbox-level `uirevision="map-keep-view"` keeps the user's
-    # pan/zoom across rebuilds. Deps are read manually (not via @reactive.event)
-    # so that no input-suppression rule can ever block a day-tick rebuild.
+    # === HEAVY (FULL) RENDER PATH =========================================
+    # This calc rebuilds the entire Plotly mapbox figure: basemap, GeoJSON,
+    # both choropleth traces, region name + capital labels, selected-region
+    # highlight, event marker, and every context overlay (municipalities,
+    # transport, industrial, weather bubbles). It is intentionally expensive
+    # — and just as intentionally narrow in its dependencies.
+    #
+    # `input.day_index` is DELIBERATELY NOT a dependency here. Day-only
+    # changes (slider drag, Play/Pause autotick) skip this code path
+    # entirely and are pushed to the browser as a light-weight Plotly.restyle
+    # via the `_push_day_snapshot` effect further down. Rebuilding the full
+    # figure on every day tick is what made the animation feel like the
+    # whole app was reloading: mapbox raster tiles, the NUTS3 GeoJSON, the
+    # labels and the event marker were all being torn down + re-attached
+    # 12 frames in a row.
+    #
+    # The current day's slice is still baked into the *initial* z /
+    # customdata of the choropleth so a freshly-built figure paints with
+    # the right colours; that read is wrapped in `reactive.isolate()` so it
+    # doesn't re-establish the day_index dependency we just removed.
+    # mapbox-level `uirevision="map-keep-view"` keeps the user's pan / zoom
+    # across the (now rare) full rebuilds.
     @reactive.calc
     def map_figure():
         # Explicit reactive dep reads — Shiny tracks each call.
         _ = input.event_id()
-        _ = input.day_index()
         if "pollutant" in input:
             _ = input.pollutant()
         if "display_mode" in input:
@@ -3241,7 +3257,10 @@ def server(input, output, session):
             input.ctx_weather_metric()
             if "ctx_weather_metric" in input else "temperature"
         )
-        df_disp = day_df_display()
+        # Baseline day slice for the *initial paint only* — isolated so this
+        # calc never re-runs just because the day slider moved.
+        with reactive.isolate():
+            df_disp = day_df_display()
         block = pollutant_block()
         ev = selected_event()
         mode = input.display_mode() if "display_mode" in input else "absolute"
@@ -3573,10 +3592,11 @@ def server(input, output, session):
 
     @reactive.effect
     async def _push_map_figure():
-        # Ship the full Plotly figure to the client and let JS call
-        # Plotly.newPlot on the static #map_plot div. This avoids shinywidgets
-        # and Plotly.react diffing entirely, so the choropleth fill is always
-        # freshly drawn for the current day.
+        # Ship the full Plotly figure to the client. Fires only when
+        # `map_figure` actually invalidates (event / pollutant / mode /
+        # region / scope / context-layer toggles / muni metric or year) —
+        # NOT on day-slider ticks. Day-only updates go through
+        # `_push_day_snapshot` below.
         fig = map_figure()
         try:
             payload = json.loads(pio.to_json(fig))
@@ -3584,6 +3604,58 @@ def server(input, output, session):
             return
         try:
             await session.send_custom_message("map_figure", payload)
+        except Exception:
+            # Session can be torn down mid-animation; swallow gracefully.
+            pass
+
+    # === LIGHT-WEIGHT DAY UPDATE PATH =====================================
+    # Fires only when `input.day_index` changes. Computes the day's z /
+    # locations / customdata for the two NUTS3 choropleth traces (values +
+    # no-data) and ships them as a tiny `map_restyle` custom message. The
+    # browser handler calls Plotly.restyle on the live figure — the basemap
+    # raster tiles, GeoJSON, region labels, capital dots, selected-region
+    # highlight, event marker, context overlays and layout all stay
+    # untouched. This is what keeps Play/Pause animation smooth: a slider
+    # tick no longer triggers a full Shiny round-trip of the figure.
+    @reactive.effect
+    @reactive.event(input.day_index)
+    async def _push_day_snapshot():
+        # `@reactive.event` isolates the body, so reading day_df_display()
+        # below pulls the current day's slice without re-establishing
+        # dependencies on pollutant / mode / event.
+        # Občine scope uses a different figure shape (bubbles, not NUTS3
+        # choropleth) — its updates go through the full _push_map_figure
+        # path. Skip restyle when we're not in the regije figure.
+        if scope_value() == "obcine":
+            return
+        df_disp = day_df_display()
+        if df_disp.empty:
+            wv = pd.DataFrame(columns=["region_code", "value_display"])
+            nv = pd.DataFrame(columns=["region_code"])
+        else:
+            wv = df_disp.dropna(subset=["value_display"])
+            nv = df_disp[df_disp["value_display"].isna()]
+        payload = {
+            "values": {
+                "locations": wv["region_code"].astype(str).tolist(),
+                "z": (
+                    wv["value_display"].astype(float).tolist()
+                    if not wv.empty else []
+                ),
+                "customdata": (
+                    _map_value_customdata(wv) if not wv.empty else []
+                ),
+            },
+            "nodata": {
+                "locations": nv["region_code"].astype(str).tolist(),
+                "z": [0.0] * len(nv),
+                "customdata": (
+                    _map_no_data_customdata(nv) if not nv.empty else []
+                ),
+            },
+        }
+        try:
+            await session.send_custom_message("map_restyle", payload)
         except Exception:
             # Session can be torn down mid-animation; swallow gracefully.
             pass

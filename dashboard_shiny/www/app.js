@@ -235,21 +235,30 @@
     scanReadouts();
   }
 
-  // ---- 5b. map renderer — Plotly.react on every figure update -----------
-  // The server ships the entire Plotly figure JSON each time it changes
-  // (event / pollutant / mode / region / day / scope / overlay toggles).
+  // ---- 5b. map renderer — two paths -------------------------------------
+  // FULL render (`map_figure`): the server ships the entire Plotly figure
+  // JSON only when something structural changes — event / pollutant /
+  // mode / region / scope / context-layer toggles. We call Plotly.react so
+  // the basemap tiles, viewport and unchanged traces stay in place. This
+  // path is NOT hit on day-slider ticks.
   //
-  // We use Plotly.react (not newPlot) so the basemap tiles, viewport and
-  // any unchanged traces stay in place — Plotly diffs the new data/layout
-  // against the existing state and updates only what actually changed.
-  // mapbox.uirevision="map-keep-view" pins pan/zoom across updates so the
-  // user's view doesn't snap back on every restyle.
+  // LIGHT day update (`map_restyle`): the server ships only the per-day
+  // z / locations / customdata for the two NUTS3 choropleth traces. We
+  // apply it with Plotly.restyle, which touches just trace 0 (regions with
+  // data) and trace 1 (no-data grey). Basemap, GeoJSON, layout, zoom,
+  // selected-region highlight, event marker and context overlays stay
+  // mounted and unaffected — that is what makes the Play/Pause animation
+  // feel cinematic instead of like a full page reload.
   //
-  // Plotly.react has the same signature as newPlot and handles the very
-  // first mount transparently, so a single code path covers both cases.
-  // If react throws (e.g. drastic figure-shape change between scope toggles
-  // on some Plotly minor versions), we fall back to a full newPlot.
+  // mapbox.uirevision="map-keep-view" pins pan/zoom across full rebuilds
+  // so the user's view doesn't snap back. Plotly.react has the same
+  // signature as newPlot and handles the first mount; if it throws (very
+  // rare, on drastic figure-shape changes), we fall back to a full newPlot.
   var pendingMapMsg = null;
+  // Last restyle payload — replayed after a full rebuild so trace 0/1 stay
+  // in sync with the current day (otherwise a freshly built figure could
+  // briefly show its bake-in defaults before the next day-snapshot arrives).
+  var pendingRestyleMsg = null;
 
   function applyMapFigure(msg) {
     if (!msg) return false;
@@ -276,9 +285,50 @@
     if (!pendingMapMsg) return true;
     if (applyMapFigure(pendingMapMsg)) {
       pendingMapMsg = null;
+      // After a full rebuild, re-apply the last day-snapshot if we have
+      // one, so trace 0/1 reflect the current slider value.
+      if (pendingRestyleMsg) applyMapRestyle(pendingRestyleMsg);
       return true;
     }
     return false;
+  }
+
+  // Apply a day-only restyle to the two choropleth traces (indices 0 and 1).
+  // The figure must already be mounted by a prior map_figure message — we
+  // verify that by checking `el.data.length >= 2`. If not yet mounted, the
+  // caller will retry for a short window.
+  function applyMapRestyle(msg) {
+    if (!msg) return false;
+    if (!window.Plotly) return false;
+    var el = document.getElementById("map_plot");
+    if (!el || !el.data || el.data.length < 2) return false;
+    var v = msg.values || {};
+    var n = msg.nodata || {};
+    // Plotly.restyle wraps array-typed attrs once per trace; passing
+    // [arr] sets `data[0].<attr> = arr` rather than spreading element-wise.
+    try {
+      window.Plotly.restyle(
+        el,
+        {
+          z: [v.z || []],
+          locations: [v.locations || []],
+          customdata: [v.customdata || []],
+        },
+        [0]
+      );
+      window.Plotly.restyle(
+        el,
+        {
+          z: [n.z || []],
+          locations: [n.locations || []],
+          customdata: [n.customdata || []],
+        },
+        [1]
+      );
+      return true;
+    } catch (err) {
+      return false;
+    }
   }
 
   function bindMapRestyle() {
@@ -291,6 +341,7 @@
       pendingMapMsg = msg;
       if (applyMapFigure(msg)) {
         pendingMapMsg = null;
+        if (pendingRestyleMsg) applyMapRestyle(pendingRestyleMsg);
         return;
       }
       // Plotly / #map_plot may not be mounted yet; retry briefly.
@@ -300,8 +351,21 @@
         if (drainPendingMap() || attempts > 40) clearInterval(t);
       }, 120);
     });
-    // Legacy no-op for any stale map_restyle messages from older sessions.
-    Shiny.addCustomMessageHandler("map_restyle", function () { /* no-op */ });
+    Shiny.addCustomMessageHandler("map_restyle", function (msg) {
+      // Remember the latest snapshot so we can replay it after a full
+      // rebuild (see applyMapFigure success path).
+      pendingRestyleMsg = msg;
+      if (applyMapRestyle(msg)) return;
+      // Map may not be mounted yet on first paint — retry briefly. Once
+      // the full figure arrives we'll also replay this payload, so this
+      // retry loop is only insurance for the case where map_restyle
+      // arrives before any map_figure (which shouldn't normally happen).
+      var attempts = 0;
+      var t = setInterval(function () {
+        attempts += 1;
+        if (applyMapRestyle(msg) || attempts > 40) clearInterval(t);
+      }, 120);
+    });
   }
 
   // ---- 5c. client-side Plotly.relayout for the trend chart --------------
