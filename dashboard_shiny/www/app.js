@@ -235,11 +235,20 @@
     scanReadouts();
   }
 
-  // ---- 5b. map renderer — full Plotly.newPlot on every figure update -----
+  // ---- 5b. map renderer — Plotly.react on every figure update -----------
   // The server ships the entire Plotly figure JSON each time it changes
-  // (event / pollutant / mode / region / day). We call Plotly.newPlot on the
-  // static #map_plot div, which guarantees the choropleth fill repaints for
-  // the current day — no diffing layer to fail.
+  // (event / pollutant / mode / region / day / scope / overlay toggles).
+  //
+  // We use Plotly.react (not newPlot) so the basemap tiles, viewport and
+  // any unchanged traces stay in place — Plotly diffs the new data/layout
+  // against the existing state and updates only what actually changed.
+  // mapbox.uirevision="map-keep-view" pins pan/zoom across updates so the
+  // user's view doesn't snap back on every restyle.
+  //
+  // Plotly.react has the same signature as newPlot and handles the very
+  // first mount transparently, so a single code path covers both cases.
+  // If react throws (e.g. drastic figure-shape change between scope toggles
+  // on some Plotly minor versions), we fall back to a full newPlot.
   var pendingMapMsg = null;
 
   function applyMapFigure(msg) {
@@ -247,16 +256,19 @@
     if (!window.Plotly) return false;
     var el = document.getElementById("map_plot");
     if (!el) return false;
+    var data = msg.data || [];
+    var layout = msg.layout || {};
+    var config = { responsive: true, displayModeBar: false };
     try {
-      window.Plotly.newPlot(
-        el,
-        msg.data || [],
-        msg.layout || {},
-        { responsive: true, displayModeBar: false }
-      );
+      window.Plotly.react(el, data, layout, config);
       return true;
     } catch (err) {
-      return false;
+      try {
+        window.Plotly.newPlot(el, data, layout, config);
+        return true;
+      } catch (err2) {
+        return false;
+      }
     }
   }
 

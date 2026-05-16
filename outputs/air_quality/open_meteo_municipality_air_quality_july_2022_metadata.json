@@ -1,0 +1,31 @@
+{
+  "source": "Open-Meteo Air Quality API (CAMS Europe reanalysis)",
+  "api_name": "Open-Meteo Air Quality (air-quality-api.open-meteo.com)",
+  "domain": "cams_europe",
+  "date_from": "2022-07-01",
+  "date_to": "2022-07-31",
+  "timezone": "Europe/Ljubljana",
+  "municipality_count": 212,
+  "municipality_failures": 0,
+  "generated_at": "2026-05-16T10:55:03.890606+00:00",
+  "variables": [
+    "pm10",
+    "pm2_5",
+    "nitrogen_dioxide",
+    "sulphur_dioxide",
+    "ozone",
+    "carbon_monoxide"
+  ],
+  "input_geojson": "reference_data/context_layers/eprostor_municipalities.geojson",
+  "output_csv": "outputs/air_quality/open_meteo_municipality_air_quality_july_2022.csv",
+  "errors_csv": null,
+  "units": {
+    "pm10": "µg/m³",
+    "pm2_5": "µg/m³",
+    "nitrogen_dioxide": "µg/m³",
+    "sulphur_dioxide": "µg/m³",
+    "ozone": "µg/m³",
+    "carbon_monoxide": "µg/m³"
+  },
+  "note": "Air quality values are retrieved for municipality centroids from the CAMS Europe reanalysis served via Open-Meteo. They represent modelled monthly averages, not official station measurements."
+}

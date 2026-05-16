@@ -131,6 +131,43 @@ NO2_COLORSCALE = [
     [1.00, "#dc4a4a"],   # critical — red
 ]
 
+# ---- Shared hover-tooltip styles -----------------------------------------
+# Inline-style strings used inside every Plotly hovertemplate on the map.
+# Plotly hover supports a narrow HTML subset (<br>, <b>, <span style=...>),
+# so the visual hierarchy here comes entirely from per-span CSS.
+#
+#   HOV_S_TITLE    bold Manrope headline (municipality / region / event name)
+#   HOV_S_SUB      small caps subtitle (metric · period · provenance)
+#   HOV_S_VAL      large mono cyan accent — the highlighted value
+#   HOV_S_VAL_ALERT same shape, warm tone — for event-marker / no-data callouts
+#   HOV_S_UNIT     muted unit after a value
+#   HOV_S_LBL      dim label in a key/value row
+#   HOV_S_VV       slightly brighter value column in a key/value row
+#   HOV_S_DIM      dim secondary text (footer, source attribution)
+#   HOV_DIVIDER    a single tiny rule that separates the headline from rows
+HOV_S_TITLE = (
+    "font-family:Manrope,system-ui,sans-serif;font-weight:700;"
+    "font-size:13.5px;color:#f5f8fc;letter-spacing:0.01em"
+)
+HOV_S_SUB = (
+    "color:#7f8da6;font-size:9.5px;letter-spacing:0.12em;"
+    "text-transform:uppercase"
+)
+HOV_S_VAL = (
+    "font-family:JetBrains Mono,monospace;font-weight:700;"
+    "font-size:18px;color:#7ddff0"
+)
+HOV_S_VAL_ALERT = (
+    "font-family:JetBrains Mono,monospace;font-weight:700;"
+    "font-size:18px;color:#ff9a6a"
+)
+HOV_S_UNIT = "color:#9eb3d2;font-size:10.5px"
+HOV_S_LBL = "color:#7f8da6;font-size:11px"
+HOV_S_VV  = "color:#dbe4f1;font-size:11px"
+HOV_S_DIM = "color:#7f8da6;font-size:10px;letter-spacing:0.04em"
+HOV_DIVIDER = "<span style='color:#3a475d'>───────────</span>"
+
+
 # Diverging cyan ↔ red scale for anomaly mode (cleaner than usual ↔ elevated).
 ANOMALY_COLORSCALE = [
     [0.00, "#3ddcc7"],   # much cleaner than usual (cyan)
@@ -418,7 +455,13 @@ def _add_industrial_layer(
             marker=dict(size=8, color=point_color),
             text=point_texts,
             name=name,
-            hovertemplate="<b>%{text}</b><br>Vir: geo-peskovnik<extra></extra>",
+            hovertemplate=(
+                f"<span style='{HOV_S_TITLE}'>%{{text}}</span><br>"
+                f"<span style='{HOV_S_SUB}'>"
+                f"Industrijska / poslovna cona  ·  geo-peskovnik"
+                f"</span>"
+                "<extra></extra>"
+            ),
             showlegend=False,
         ))
 
@@ -1002,6 +1045,313 @@ def _muni_metric_range(metric: str) -> tuple[float, float]:
     return (lo, max(hi, lo + 1e-6))
 
 
+# ---------------------------------------------------------------------------
+# Open-Meteo weather context (July 2022) — used for the Kras wildfire event.
+#
+# Loaded from outputs/weather/open_meteo_municipality_july_2022.csv. If the
+# file is missing the dashboard still runs; the weather panel shows
+# "Vremenski podatki niso naloženi." and the optional map layer is hidden.
+# ---------------------------------------------------------------------------
+
+WEATHER_CSV = (
+    PROJECT_ROOT
+    / "outputs"
+    / "weather"
+    / "open_meteo_municipality_july_2022.csv"
+)
+WEATHER_EVENT_ID = "kras_fire_2022"
+
+# Weather metric spec: column → Slovene label, unit and decimals.
+WEATHER_METRICS: dict[str, dict] = {
+    "temperature": {
+        "col": "temperature_2m_mean_avg",
+        "label": "Povprečna temperatura",
+        "short": "Temperatura",
+        "unit": "°C",
+        "decimals": 1,
+    },
+    "precipitation": {
+        "col": "precipitation_sum_total",
+        "label": "Skupne padavine",
+        "short": "Padavine",
+        "unit": "mm",
+        "decimals": 1,
+    },
+    "wind_speed": {
+        "col": "wind_speed_10m_mean_avg",
+        "label": "Povprečna hitrost vetra",
+        "short": "Veter",
+        "unit": "km/h",
+        "decimals": 1,
+    },
+    "humidity": {
+        "col": "relative_humidity_2m_mean_avg",
+        "label": "Povprečna vlažnost",
+        "short": "Vlažnost",
+        "unit": "%",
+        "decimals": 0,
+    },
+}
+
+# Open-Meteo Air Quality (CAMS Europe reanalysis) — per-municipality monthly
+# averages for July 2022. Loaded later, but the metric → column lookup lives
+# here so the Občine view (only when the Kras 2022 event is selected) can
+# colour bubble markers by the air pollutant the user already picked in the
+# existing PM10/PM2.5/NO2/SO2/O3/CO radio. Cancer/health metrics from the
+# annual xlsx are intentionally not mapped — they have no monthly equivalent
+# in the CAMS reanalysis.
+AQ_MUNI_METRIC_COLUMN: dict[str, str] = {
+    "PM10": "pm10_avg",
+    "PM25": "pm25_avg",
+    "NO2":  "no2_avg",
+    "SO2":  "so2_avg",
+    "O3":   "o3_avg",
+    "CO":   "co_avg",
+}
+
+
+# Compass abbreviations for dominant wind direction.
+_COMPASS_8 = ["S", "SV", "V", "JV", "J", "JZ", "Z", "SZ"]
+
+
+def _degrees_to_compass(deg: float | None) -> str:
+    if deg is None or (isinstance(deg, float) and pd.isna(deg)):
+        return "—"
+    idx = int(((deg % 360.0) + 22.5) // 45.0) % 8
+    return _COMPASS_8[idx]
+
+
+def load_weather_df(path: Path = WEATHER_CSV) -> pd.DataFrame:
+    """Return the Open-Meteo monthly weather DataFrame, empty if missing."""
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(path)
+    except (OSError, pd.errors.ParserError):
+        return pd.DataFrame()
+    # Coerce numeric columns just in case (CSV → strings on read).
+    numeric_cols = [
+        "lat", "lon",
+        "temperature_2m_mean_avg",
+        "precipitation_sum_total",
+        "wind_speed_10m_mean_avg",
+        "wind_speed_10m_max",
+        "wind_gusts_10m_max",
+        "wind_direction_10m_dominant",
+        "relative_humidity_2m_mean_avg",
+        "cloud_cover_mean_avg",
+    ]
+    for c in numeric_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    if "municipality_id" in df.columns:
+        df["municipality_id"] = df["municipality_id"].astype(str)
+    if "municipality_name" in df.columns:
+        df["municipality_name"] = df["municipality_name"].astype(str)
+    return df
+
+
+_WEATHER_DF: pd.DataFrame = load_weather_df()
+_WEATHER_AVAILABLE: bool = not _WEATHER_DF.empty
+
+
+# Open-Meteo Air Quality (CAMS Europe reanalysis), July 2022. Used only by
+# the Občine view when the Goriški Kras 2022 event is active.
+AIR_QUALITY_CSV = (
+    PROJECT_ROOT
+    / "outputs"
+    / "air_quality"
+    / "open_meteo_municipality_air_quality_july_2022.csv"
+)
+
+
+def load_air_quality_df(path: Path = AIR_QUALITY_CSV) -> pd.DataFrame:
+    """Return the Open-Meteo Air Quality monthly DataFrame, empty if missing."""
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(path)
+    except (OSError, pd.errors.ParserError):
+        return pd.DataFrame()
+    numeric_cols = [
+        "lat", "lon",
+        "pm10_avg", "pm10_max",
+        "pm25_avg", "pm25_max",
+        "no2_avg",  "no2_max",
+        "so2_avg",  "so2_max",
+        "o3_avg",   "o3_max",
+        "co_avg",   "co_max",
+    ]
+    for c in numeric_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    if "municipality_id" in df.columns:
+        df["municipality_id"] = df["municipality_id"].astype(str)
+    if "municipality_name" in df.columns:
+        df["municipality_name"] = df["municipality_name"].astype(str)
+    return df
+
+
+_AIR_QUALITY_DF: pd.DataFrame = load_air_quality_df()
+_AIR_QUALITY_AVAILABLE: bool = not _AIR_QUALITY_DF.empty
+
+
+def _point_in_ring(x: float, y: float, ring: list[tuple[float, float]]) -> bool:
+    """Ray-casting point-in-polygon test for a single closed lon/lat ring."""
+    inside = False
+    n = len(ring)
+    if n < 3:
+        return False
+    j = n - 1
+    for i in range(n):
+        xi, yi = ring[i]
+        xj, yj = ring[j]
+        if ((yi > y) != (yj > y)) and (
+            x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-12) + xi
+        ):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _point_in_geometry(x: float, y: float, geom: dict) -> bool:
+    gtype = (geom or {}).get("type")
+    coords = (geom or {}).get("coordinates") or []
+    if gtype == "Polygon":
+        if not coords:
+            return False
+        outer = [(float(p[0]), float(p[1])) for p in coords[0] if len(p) >= 2]
+        if not _point_in_ring(x, y, outer):
+            return False
+        for hole in coords[1:]:
+            hring = [(float(p[0]), float(p[1])) for p in hole if len(p) >= 2]
+            if _point_in_ring(x, y, hring):
+                return False
+        return True
+    if gtype == "MultiPolygon":
+        for poly in coords:
+            if not poly:
+                continue
+            outer = [(float(p[0]), float(p[1])) for p in poly[0] if len(p) >= 2]
+            if not _point_in_ring(x, y, outer):
+                continue
+            in_hole = False
+            for hole in poly[1:]:
+                hring = [(float(p[0]), float(p[1])) for p in hole if len(p) >= 2]
+                if _point_in_ring(x, y, hring):
+                    in_hole = True
+                    break
+            if not in_hole:
+                return True
+    return False
+
+
+def _build_muni_region_map() -> dict[str, str]:
+    """Return municipality_id → NUTS3 region_code via centroid-in-polygon.
+
+    Computed once at module import so the per-region weather aggregate stays
+    cheap. Municipalities whose centroid lands outside every region (e.g.
+    coastal edge cases) are simply omitted.
+    """
+    out: dict[str, str] = {}
+    if _WEATHER_DF.empty or not _REGIONS_GEOJSON.get("features"):
+        return out
+    region_geoms: list[tuple[str, dict]] = []
+    for feat in _REGIONS_GEOJSON.get("features") or []:
+        rc = (feat.get("properties") or {}).get("region_code")
+        if rc:
+            region_geoms.append((str(rc), feat.get("geometry") or {}))
+    for _, row in _WEATHER_DF.iterrows():
+        try:
+            lat = float(row["lat"]); lon = float(row["lon"])
+        except (TypeError, ValueError):
+            continue
+        for rc, geom in region_geoms:
+            if _point_in_geometry(lon, lat, geom):
+                out[str(row["municipality_id"])] = rc
+                break
+    return out
+
+
+_MUNI_REGION_MAP: dict[str, str] = _build_muni_region_map()
+
+
+def _weather_metric_range(metric_key: str) -> tuple[float, float]:
+    """Stable cmin/cmax for a weather metric across all municipalities."""
+    spec = WEATHER_METRICS.get(metric_key)
+    if not spec or _WEATHER_DF.empty:
+        return (0.0, 1.0)
+    col = spec["col"]
+    if col not in _WEATHER_DF.columns:
+        return (0.0, 1.0)
+    vals = pd.to_numeric(_WEATHER_DF[col], errors="coerce").dropna()
+    if vals.empty:
+        return (0.0, 1.0)
+    lo = float(vals.quantile(0.02))
+    hi = float(vals.quantile(0.98))
+    return (lo, max(hi, lo + 1e-6))
+
+
+def aggregate_weather(region_code: str | None) -> dict:
+    """Return a dict of weather summary values, optionally region-filtered.
+
+    Falls back to the all-Slovenia average if the region is empty or contains
+    no municipalities with weather data.
+    """
+    if _WEATHER_DF.empty:
+        return {}
+
+    scope_label = "Slovenija"
+    sub = _WEATHER_DF
+    if region_code:
+        muni_ids = [
+            mid for mid, rc in _MUNI_REGION_MAP.items() if rc == region_code
+        ]
+        if muni_ids:
+            sub_try = _WEATHER_DF[_WEATHER_DF["municipality_id"].isin(muni_ids)]
+            if not sub_try.empty:
+                sub = sub_try
+                name = _REGION_NAMES.get(region_code) or region_code
+                scope_label = str(name)
+
+    def _avg(col: str) -> float | None:
+        if col not in sub.columns:
+            return None
+        v = pd.to_numeric(sub[col], errors="coerce").dropna()
+        return float(v.mean()) if not v.empty else None
+
+    def _maxv(col: str) -> float | None:
+        if col not in sub.columns:
+            return None
+        v = pd.to_numeric(sub[col], errors="coerce").dropna()
+        return float(v.max()) if not v.empty else None
+
+    # Dominant wind direction: circular mean of the per-municipality values.
+    wd_vals = pd.to_numeric(
+        sub.get("wind_direction_10m_dominant", pd.Series(dtype=float)),
+        errors="coerce",
+    ).dropna()
+    wd_dom: float | None = None
+    if not wd_vals.empty:
+        sin_sum = float(np.sin(np.radians(wd_vals)).mean())
+        cos_sum = float(np.cos(np.radians(wd_vals)).mean())
+        if not (sin_sum == 0.0 and cos_sum == 0.0):
+            wd_dom = float((np.degrees(np.arctan2(sin_sum, cos_sum)) + 360.0) % 360.0)
+
+    return {
+        "scope_label": scope_label,
+        "municipality_count": int(len(sub)),
+        "temperature_avg": _avg("temperature_2m_mean_avg"),
+        "precipitation_total_avg": _avg("precipitation_sum_total"),
+        "wind_speed_avg": _avg("wind_speed_10m_mean_avg"),
+        "wind_speed_max": _maxv("wind_speed_10m_max"),
+        "wind_gust_max": _maxv("wind_gusts_10m_max"),
+        "wind_direction_dominant": wd_dom,
+        "humidity_avg": _avg("relative_humidity_2m_mean_avg"),
+        "cloud_cover_avg": _avg("cloud_cover_mean_avg"),
+    }
+
+
 def cache_pollutant_block(event_id: str, pollutant: str) -> dict:
     """Look up the per-(event, pollutant) sub-cache, with safe fallback."""
     entry = _EVENT_CACHE.get(event_id) or {}
@@ -1426,6 +1776,36 @@ def _ctx_layer_row(input_id: str, layer_key: str) -> ui.Tag:
     return ui.div(checkbox, source, class_=row_cls)
 
 
+def _ctx_weather_row() -> ui.Tag:
+    """Row in the GeoSlovenija context panel for the Open-Meteo weather layer.
+
+    Disabled (with "Sloj ni naložen") when the weather CSV is missing on disk.
+    Source text reflects Open-Meteo provenance when the file is present.
+    """
+    label = "Vreme po občinah"
+    row_cls = (
+        "aw-ctx-row" if _WEATHER_AVAILABLE
+        else "aw-ctx-row aw-ctx-row-disabled"
+    )
+    if _WEATHER_AVAILABLE:
+        checkbox = ui.input_checkbox("ctx_weather", label, value=False)
+        source = ui.span("Open-Meteo (julij 2022)", class_="aw-ctx-source")
+    else:
+        checkbox = ui.tags.label(
+            ui.tags.input(
+                type="checkbox", disabled="disabled",
+                class_="aw-ctx-disabled-input",
+            ),
+            ui.span(label, class_="aw-ctx-disabled-label"),
+            class_="aw-ctx-disabled-row",
+        )
+        source = ui.span(
+            "Sloj ni naložen",
+            class_="aw-ctx-source aw-ctx-source-missing",
+        )
+    return ui.div(checkbox, source, class_=row_cls)
+
+
 app_ui = ui.page_fluid(
     # ----- HEAD: humanist Google Fonts, custom CSS, custom JS --------------
     ui.head_content(
@@ -1730,6 +2110,12 @@ app_ui = ui.page_fluid(
                             class_="aw-card aw-card-region",
                         ),
 
+                        # Card: Open-Meteo weather context (Kras wildfire, July 2022).
+                        # Server-rendered as either the full panel or a "not loaded"
+                        # stub. Always rendered into the DOM; the renderer returns an
+                        # empty div for non-Kras events so other events stay clean.
+                        ui.output_ui("weather_panel"),
+
                         # Card: GeoSlovenija context layers
                         ui.div(
                             ui.div("GeoSlovenija konteksti", class_="aw-card-title"),
@@ -1761,7 +2147,38 @@ app_ui = ui.page_fluid(
                                 _ctx_layer_row(
                                     "ctx_industrial", "industrial",
                                 ),
+                                # Open-Meteo weather overlay (subtle secondary layer)
+                                # — markers at municipality centroids coloured by the
+                                # selected weather metric. Always disabled if the CSV
+                                # is missing on disk.
+                                _ctx_weather_row(),
                                 class_="aw-ctx-list",
+                            ),
+                            # Weather metric selector — collapsed to a single-line
+                            # radio row, only meaningful when the toggle above is on.
+                            ui.div(
+                                ui.div(
+                                    "Vremenska metrika",
+                                    class_="aw-ctx-weather-label",
+                                ),
+                                ui.input_radio_buttons(
+                                    "ctx_weather_metric",
+                                    None,
+                                    choices={
+                                        k: ui.tags.span(
+                                            v["short"],
+                                            class_="poll-short",
+                                        )
+                                        for k, v in WEATHER_METRICS.items()
+                                    },
+                                    selected="temperature",
+                                    inline=True,
+                                ),
+                                class_=(
+                                    "aw-ctx-weather-metric"
+                                    if _WEATHER_AVAILABLE
+                                    else "aw-ctx-weather-metric aw-ctx-weather-metric-disabled"
+                                ),
                             ),
                             class_="aw-card",
                         ),
@@ -2010,6 +2427,159 @@ def _mapbox_config_dark_gray(**overrides) -> dict:
     return cfg
 
 
+# Path & loader for the Open-Meteo Air Quality CSV are declared near the
+# bottom of the data-loading block; see ``load_air_quality_df`` and
+# ``_AIR_QUALITY_DF`` below the other module-level state.
+
+
+def _aq_hover_customdata(df: pd.DataFrame) -> list[list]:
+    """Per-row hover payload for Občine air-quality bubbles.
+
+    Each row carries the full air-quality profile (six pollutants) so the
+    tooltip shows the complete July 2022 picture, not just the coloured one.
+    """
+    out: list[list] = []
+    for _, r in df.iterrows():
+        def _f(col: str):
+            v = r.get(col)
+            try:
+                return float(v) if pd.notna(v) else None
+            except (TypeError, ValueError):
+                return None
+        out.append([
+            str(r.get("municipality_name") or ""),  # 0
+            _f("pm25_avg"),                          # 1
+            _f("pm10_avg"),                          # 2
+            _f("no2_avg"),                           # 3
+            _f("so2_avg"),                           # 4
+            _f("o3_avg"),                            # 5
+            _f("co_avg"),                            # 6
+        ])
+    return out
+
+
+def _aq_metric_range(col: str) -> tuple[float, float]:
+    """Stable cmin/cmax for an AQ column across all municipalities."""
+    if _AIR_QUALITY_DF.empty or col not in _AIR_QUALITY_DF.columns:
+        return (0.0, 1.0)
+    vals = pd.to_numeric(_AIR_QUALITY_DF[col], errors="coerce").dropna()
+    if vals.empty:
+        return (0.0, 1.0)
+    lo = float(vals.quantile(0.02))
+    hi = float(vals.quantile(0.98))
+    return (lo, max(hi, lo + 1e-6))
+
+
+def _build_air_quality_municipality_figure(metric: str) -> go.Figure:
+    """Bubble map of municipalities coloured by an air pollutant (jul. 2022).
+
+    Used only when the Goriški Kras 2022 event is active AND the user has
+    switched the scope to "Občine". Falls back to a friendly empty-state
+    figure when the AQ CSV is missing on disk or the chosen metric has no
+    column in the CSV (e.g. NPR/UMR cancer metrics — those are annual-xlsx
+    only and have no monthly air-quality equivalent).
+    """
+    fig = go.Figure()
+    col = AQ_MUNI_METRIC_COLUMN.get(metric)
+
+    if _AIR_QUALITY_DF.empty or not col or col not in _AIR_QUALITY_DF.columns:
+        fig.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            mapbox=_mapbox_config_dark_gray(uirevision="map-keep-view"),
+            margin=dict(l=0, r=0, t=0, b=0),
+            height=680,
+            showlegend=False,
+        )
+        msg = (
+            "Za ta pokazatelj v julij 2022 nimamo občinskih podatkov."
+            if not _AIR_QUALITY_DF.empty
+            else "Občinski podatki o kakovosti zraka niso naloženi."
+        )
+        fig.add_annotation(
+            text=msg,
+            font=dict(color="#c0cbe0",
+                      family="DM Sans, system-ui, sans-serif", size=14),
+            showarrow=False, x=0.5, y=0.5, xref="paper", yref="paper",
+        )
+        return fig
+
+    spec = MUNI_METRICS.get(metric, MUNI_METRICS["PM10"])
+    unit = spec["unit"]
+    title = spec["name_slo"]
+
+    df = _AIR_QUALITY_DF.dropna(subset=[col, "lat", "lon"]).copy()
+    zmin, zmax = _aq_metric_range(col)
+    main_idx = ["PM25", "PM10", "NO2", "SO2", "O3", "CO"].index(metric) + 1
+
+    # Hover: municipality name, the selected pollutant as the bold "headline"
+    # value, then a compact secondary list with the remaining five pollutants
+    # paired two-per-line. The `<extra>` corner box is suppressed so all
+    # information sits in the primary tooltip.
+    others = [
+        ("PM2.5", 1),
+        ("PM10",  2),
+        ("NO₂",   3),
+        ("SO₂",   4),
+        ("O₃",    5),
+        ("CO",    6),
+    ]
+    others = [o for o in others if o[1] != main_idx]
+    other_pairs = [others[i:i + 2] for i in range(0, len(others), 2)]
+    other_lines = "<br>".join(
+        "    ".join(
+            f"<span style='{HOV_S_LBL}'>{lbl}</span> "
+            f"<span style='{HOV_S_VV}'>%{{customdata[{idx}]:.1f}}</span>"
+            for (lbl, idx) in pair
+        )
+        for pair in other_pairs
+    )
+
+    hovertemplate = (
+        f"<span style='{HOV_S_TITLE}'>%{{customdata[0]}}</span><br>"
+        f"<span style='{HOV_S_SUB}'>{title}  ·  jul. 2022</span><br>"
+        f"<span style='{HOV_S_VAL}'>%{{customdata[{main_idx}]:.1f}}</span> "
+        f"<span style='{HOV_S_UNIT}'>{unit}</span><br>"
+        f"{HOV_DIVIDER}<br>"
+        + other_lines
+        + "<extra></extra>"
+    )
+
+    fig.add_trace(go.Scattermapbox(
+        lat=df["lat"].astype(float).tolist(),
+        lon=df["lon"].astype(float).tolist(),
+        mode="markers",
+        marker=dict(
+            size=13,
+            color=df[col].astype(float).tolist(),
+            colorscale=NO2_COLORSCALE,
+            cmin=zmin, cmax=zmax,
+            opacity=0.92,
+        ),
+        text=df["municipality_name"].astype(str).tolist(),
+        customdata=_aq_hover_customdata(df),
+        hovertemplate=hovertemplate,
+        showlegend=False,
+    ))
+
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        mapbox=_mapbox_config_dark_gray(uirevision="map-keep-view"),
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=680,
+        showlegend=False,
+        font=dict(family="DM Sans, system-ui, sans-serif", color="#e6edf6"),
+        hoverlabel=dict(
+            bgcolor="rgba(18,24,38,0.96)",
+            bordercolor="rgba(14,155,209,0.55)",
+            font=dict(family="DM Sans, system-ui, sans-serif",
+                      color="#e6edf6", size=12),
+        ),
+    )
+    return fig
+
+
 def _build_municipality_figure(metric: str, year: int) -> go.Figure:
     """Bubble map of all municipalities coloured by ``metric`` for ``year``.
 
@@ -2053,13 +2623,86 @@ def _build_municipality_figure(metric: str, year: int) -> go.Figure:
             marker=dict(size=6, color="rgba(170,180,196,0.55)"),
             text=missing["muni"],
             hovertemplate=(
-                "<b>%{text}</b><br>"
-                f"{title} ({year}): ni podatka<extra></extra>"
+                f"<span style='{HOV_S_TITLE}'>%{{text}}</span><br>"
+                f"<span style='{HOV_S_SUB}'>{title}  ·  leto {year}</span><br>"
+                f"<span style='{HOV_S_DIM}'>Ni podatka za to leto.</span>"
+                "<extra></extra>"
             ),
             showlegend=False,
         ))
 
     if not valid.empty:
+        # Full pollutant context in the hover: the user-selected metric is the
+        # bold headline value; the remaining five pollutants are paired
+        # two-per-line in a compact secondary list. Cancer-rate metrics
+        # (NPR / UMR) are excluded from the secondary list since they are
+        # health outcomes, not pollutants.
+        hover_pollutants = ["PM10", "PM25", "O3", "SO2", "NO2", "CO"]
+        hover_labels = {
+            "PM10": "PM10", "PM25": "PM2.5", "O3": "O₃",
+            "SO2": "SO₂",  "NO2": "NO₂",  "CO": "CO",
+        }
+        custom_cols = hover_pollutants
+        cd_valid = valid.reindex(columns=custom_cols).apply(
+            lambda s: pd.to_numeric(s, errors="coerce")
+        )
+        custom = cd_valid.values
+        # PM/health pollutants all share µg/m³ — used in the cancer-rate
+        # secondary list below.
+        unit_all = MUNI_METRICS["PM10"]["unit"]
+
+        if metric in custom_cols:
+            main_idx = custom_cols.index(metric)
+            others = [(hover_labels[k], i)
+                      for i, k in enumerate(custom_cols) if k != metric]
+            other_pairs = [others[i:i + 2] for i in range(0, len(others), 2)]
+            other_lines = "<br>".join(
+                "    ".join(
+                    f"<span style='{HOV_S_LBL}'>{lbl}</span> "
+                    f"<span style='{HOV_S_VV}'>%{{customdata[{idx}]:.2f}}</span>"
+                    for (lbl, idx) in pair
+                )
+                for pair in other_pairs
+            )
+            hovertemplate = (
+                f"<span style='{HOV_S_TITLE}'>%{{text}}</span><br>"
+                f"<span style='{HOV_S_SUB}'>{title}  ·  leto {year}</span><br>"
+                f"<span style='{HOV_S_VAL}'>%{{customdata[{main_idx}]:.2f}}</span> "
+                f"<span style='{HOV_S_UNIT}'>{unit}</span><br>"
+                f"{HOV_DIVIDER}<br>"
+                + other_lines
+                + "<extra></extra>"
+            )
+        else:
+            # NPR / UMR (cancer rates) — show the selected metric as the
+            # headline but still ship the full pollutant profile underneath.
+            custom_cols = [metric] + hover_pollutants
+            cd_valid = valid.reindex(columns=custom_cols).apply(
+                lambda s: pd.to_numeric(s, errors="coerce")
+            )
+            custom = cd_valid.values
+            pairs = [(hover_labels[k], i + 1)
+                     for i, k in enumerate(hover_pollutants)]
+            other_pairs = [pairs[i:i + 2] for i in range(0, len(pairs), 2)]
+            other_lines = "<br>".join(
+                "    ".join(
+                    f"<span style='{HOV_S_LBL}'>{lbl}</span> "
+                    f"<span style='{HOV_S_VV}'>%{{customdata[{idx}]:.2f}}"
+                    f" {unit_all}</span>"
+                    for (lbl, idx) in pair
+                )
+                for pair in other_pairs
+            )
+            hovertemplate = (
+                f"<span style='{HOV_S_TITLE}'>%{{text}}</span><br>"
+                f"<span style='{HOV_S_SUB}'>{title}  ·  leto {year}</span><br>"
+                f"<span style='{HOV_S_VAL}'>%{{customdata[0]:.2f}}</span> "
+                f"<span style='{HOV_S_UNIT}'>{unit}</span><br>"
+                f"{HOV_DIVIDER}<br>"
+                + other_lines
+                + "<extra></extra>"
+            )
+
         fig.add_trace(go.Scattermapbox(
             lat=valid["lat"], lon=valid["lon"],
             mode="markers",
@@ -2071,12 +2714,8 @@ def _build_municipality_figure(metric: str, year: int) -> go.Figure:
                 opacity=0.92,
             ),
             text=valid["muni"],
-            customdata=valid[[metric]].values,
-            hovertemplate=(
-                "<b>%{text}</b><br>"
-                f"{title}: %{{customdata[0]:.2f}} {unit}<br>"
-                f"Leto: {year}<extra></extra>"
-            ),
+            customdata=custom,
+            hovertemplate=hovertemplate,
             showlegend=False,
         ))
 
@@ -2408,14 +3047,33 @@ def server(input, output, session):
         m = input.muni_metric() if "muni_metric" in input else None
         return m if m in MUNI_METRICS else "PM10"
 
+    @reactive.calc
+    def muni_uses_aq() -> bool:
+        """True iff the Občine view should pull from the Open-Meteo AQ CSV.
+
+        Trigger: the Kras July 2022 event is selected, the AQ CSV is on
+        disk, and the user has picked one of the six pollutants that have a
+        column in that CSV (PM10/PM25/NO2/SO2/O3/CO — cancer/health metrics
+        are excluded).
+        """
+        ev = selected_event() or {}
+        eid = str(ev.get("event_id") or "")
+        if eid != WEATHER_EVENT_ID or not _AIR_QUALITY_AVAILABLE:
+            return False
+        return muni_metric() in AQ_MUNI_METRIC_COLUMN
+
     @output
     @render.text
     def muni_year_label():
+        if muni_uses_aq():
+            return "Obdobje: julij 2022"
         return f"Leto: {muni_year()}"
 
     @output
     @render.text
     def muni_year_value():
+        if muni_uses_aq():
+            return "julij 2022"
         return str(muni_year())
 
     @output
@@ -2432,17 +3090,30 @@ def server(input, output, session):
     @output
     @render.ui
     def map_legend_floating():
-        # ---- Občine scope: bubble-map legend ----
+        # ---- Občine scope: bubble-map legend (annual xlsx or AQ bubbles) ----
         if scope_value() == "obcine":
             metric = muni_metric()
             mspec = MUNI_METRICS.get(metric, MUNI_METRICS["PM10"])
-            zmin, zmax = _muni_metric_range(metric)
+            if muni_uses_aq():
+                col = AQ_MUNI_METRIC_COLUMN.get(metric)
+                zmin, zmax = _aq_metric_range(col) if col else (0.0, 1.0)
+                tick_fmt = "{:.1f}"
+                ramp_title = f"{mspec['name_slo']} · {mspec['unit']}"
+                note_text = (
+                    "Open-Meteo · CAMS Europe · julij 2022 · 212 občin"
+                )
+            else:
+                zmin, zmax = _muni_metric_range(metric)
+                tick_fmt = "{:.2f}"
+                ramp_title = f"{mspec['name_slo']} · {mspec['unit']}"
+                note_text = (
+                    f"Letno povprečje, leto {muni_year()} · 212 občin"
+                )
             mid_val = (zmin + zmax) / 2.0
             cscale = NO2_COLORSCALE
             gradient_css = ", ".join(
                 f"{col} {pos * 100:.1f}%" for pos, col in cscale
             )
-            ramp_title = f"{mspec['name_slo']} · {mspec['unit']}"
             return ui.div(
                 ui.div(ramp_title, class_="aw-mlegend-title"),
                 ui.div(
@@ -2451,17 +3122,14 @@ def server(input, output, session):
                         style=f"background: linear-gradient(90deg, {gradient_css});",
                     ),
                     ui.div(
-                        ui.span(f"{zmin:.2f}", class_="aw-mlegend-tick"),
-                        ui.span(f"{mid_val:.2f}", class_="aw-mlegend-tick"),
-                        ui.span(f"{zmax:.2f}", class_="aw-mlegend-tick"),
+                        ui.span(tick_fmt.format(zmin), class_="aw-mlegend-tick"),
+                        ui.span(tick_fmt.format(mid_val), class_="aw-mlegend-tick"),
+                        ui.span(tick_fmt.format(zmax), class_="aw-mlegend-tick"),
                         class_="aw-mlegend-ticks",
                     ),
                     class_="aw-mlegend-ramp-wrap",
                 ),
-                ui.div(
-                    f"Letno povprečje, leto {muni_year()} · 212 občin",
-                    class_="aw-mlegend-note",
-                ),
+                ui.div(note_text, class_="aw-mlegend-note"),
                 class_="aw-mlegend",
             )
 
@@ -2545,6 +3213,10 @@ def server(input, output, session):
         # Scope dep — switches the whole figure when the user toggles Občine.
         _ = scope_value()
         if scope_value() == "obcine":
+            # Kras 2022 + Občine → CAMS Europe air-quality bubbles for July
+            # 2022 (Open-Meteo). Otherwise the legacy annual xlsx bubble map.
+            if muni_uses_aq():
+                return _build_air_quality_municipality_figure(muni_metric())
             return _build_municipality_figure(muni_metric(), muni_year())
         # GeoSlovenija / eProstor context-layer toggles — re-render the map
         # whenever a layer is shown or hidden.
@@ -2560,6 +3232,14 @@ def server(input, output, session):
         ctx_show_industrial = (
             bool(input.ctx_industrial())
             if "ctx_industrial" in input else False
+        )
+        ctx_show_weather = (
+            bool(input.ctx_weather())
+            if "ctx_weather" in input else False
+        )
+        weather_metric_key = (
+            input.ctx_weather_metric()
+            if "ctx_weather_metric" in input else "temperature"
         )
         df_disp = day_df_display()
         block = pollutant_block()
@@ -2607,11 +3287,15 @@ def server(input, output, session):
             nv = df_disp[df_disp["value_display"].isna()]
 
         hovertemplate_val = (
-            "<b>%{customdata[0]}</b><br>"
-            "%{customdata[1]}<br>"
-            f"{p_short}: %{{customdata[2]:.{decimals}f}} {unit}<br>"
-            f"Najmanj/največ: %{{customdata[3]:.{decimals}f}} / %{{customdata[4]:.{decimals}f}}<br>"
-            "Kakovost meritve: %{customdata[6]}"
+            f"<span style='{HOV_S_TITLE}'>%{{customdata[0]}}</span><br>"
+            f"<span style='{HOV_S_SUB}'>{p_short}</span><br>"
+            f"<span style='{HOV_S_VAL}'>%{{customdata[2]:.{decimals}f}}</span> "
+            f"<span style='{HOV_S_UNIT}'>{unit}</span><br>"
+            f"{HOV_DIVIDER}<br>"
+            f"<span style='{HOV_S_LBL}'>Min</span> "
+            f"<span style='{HOV_S_VV}'>%{{customdata[3]:.{decimals}f}}</span>    "
+            f"<span style='{HOV_S_LBL}'>Max</span> "
+            f"<span style='{HOV_S_VV}'>%{{customdata[4]:.{decimals}f}}</span>"
             "<extra></extra>"
         )
 
@@ -2651,9 +3335,10 @@ def server(input, output, session):
                 ),
                 customdata=_map_no_data_customdata(nv) if not nv.empty else [],
                 hovertemplate=(
-                    "<b>%{customdata[0]}</b><br>"
-                    "%{customdata[1]}<br>"
-                    "Ni zanesljive satelitske meritve."
+                    f"<span style='{HOV_S_TITLE}'>%{{customdata[0]}}</span><br>"
+                    f"<span style='{HOV_S_DIM}'>"
+                    f"Ni zanesljive satelitske meritve."
+                    f"</span>"
                     "<extra></extra>"
                 ),
                 name="",
@@ -2706,7 +3391,13 @@ def server(input, output, session):
                         color="#ffffff",
                     ),
                     hovertext=cap_names,
-                    hovertemplate="<b>%{hovertext}</b><extra></extra>",
+                    hovertemplate=(
+                        f"<span style='{HOV_S_TITLE}'>%{{hovertext}}</span>"
+                        f"<br><span style='{HOV_S_SUB}'>"
+                        f"Glavno središče regije"
+                        f"</span>"
+                        "<extra></extra>"
+                    ),
                     showlegend=False,
                 ))
                 # town-name text labels just below each dot
@@ -2778,7 +3469,10 @@ def server(input, output, session):
                 textfont=dict(family="Manrope, system-ui, sans-serif",
                               color="#ffd1d1", size=12),
                 hovertemplate=(
-                    f"<b>{copy['title']}</b><br>{label}<extra></extra>"
+                    f"<span style='{HOV_S_TITLE}'>{copy['title']}</span><br>"
+                    f"<span style='{HOV_S_SUB}'>Lokacija dogodka</span><br>"
+                    f"<span style='{HOV_S_VV}'>{label}</span>"
+                    "<extra></extra>"
                 ),
                 showlegend=False,
             ))
@@ -2814,6 +3508,50 @@ def server(input, output, session):
                 point_color="rgba(217,102,55,0.95)",
                 name="Industrijska in poslovna območja (geo-peskovnik)",
             )
+
+        # ---- Optional Open-Meteo weather overlay (subtle, secondary) ----
+        # Small markers at municipality centroids coloured by the selected
+        # weather metric. Sentinel pollutant choropleth above stays the
+        # primary reading — this layer is intentionally semi-transparent.
+        if ctx_show_weather and _WEATHER_AVAILABLE:
+            wm_spec = WEATHER_METRICS.get(
+                weather_metric_key, WEATHER_METRICS["temperature"]
+            )
+            wcol = wm_spec["col"]
+            if wcol in _WEATHER_DF.columns:
+                wsub = _WEATHER_DF.dropna(subset=[wcol, "lat", "lon"])
+                if not wsub.empty:
+                    wmin, wmax = _weather_metric_range(weather_metric_key)
+                    w_unit = wm_spec["unit"]
+                    w_label = wm_spec["label"]
+                    w_dec = int(wm_spec.get("decimals", 1))
+                    fig.add_trace(go.Scattermapbox(
+                        lat=wsub["lat"].astype(float).tolist(),
+                        lon=wsub["lon"].astype(float).tolist(),
+                        mode="markers",
+                        marker=dict(
+                            size=10,
+                            color=wsub[wcol].astype(float).tolist(),
+                            colorscale=NO2_COLORSCALE,
+                            cmin=wmin, cmax=wmax,
+                            opacity=0.55,
+                        ),
+                        text=wsub["municipality_name"].astype(str).tolist(),
+                        customdata=wsub[[wcol]].values,
+                        hovertemplate=(
+                            f"<span style='{HOV_S_TITLE}'>%{{text}}</span><br>"
+                            f"<span style='{HOV_S_SUB}'>"
+                            f"{w_label}  ·  jul. 2022"
+                            f"</span><br>"
+                            f"<span style='{HOV_S_VAL}'>"
+                            f"%{{customdata[0]:.{w_dec}f}}"
+                            f"</span> "
+                            f"<span style='{HOV_S_UNIT}'>{w_unit}</span>"
+                            "<extra></extra>"
+                        ),
+                        name="Vreme po občinah",
+                        showlegend=False,
+                    ))
 
         # ---- Layout
         fig.update_layout(
@@ -3072,6 +3810,112 @@ def server(input, output, session):
                 class_="stat-row",
             ),
             ui.div(rank_text, class_="rank") if rank_text else "",
+        )
+
+    # -------- WEATHER CONTEXT PANEL (Kras 2022) ----------------------------
+
+    @output
+    @render.ui
+    def weather_panel():
+        """Compact Open-Meteo weather context, only for the Kras 2022 event.
+
+        Other events render as an empty div so the side rail stays clean.
+        When the CSV is missing on disk, shows a single "not loaded" line.
+        Honours the currently selected region: if it maps to municipalities
+        with weather rows, those drive the averages; otherwise the panel
+        falls back to a Slovenia-wide aggregate.
+        """
+        ev = selected_event()
+        eid = str((ev or {}).get("event_id") or "")
+        if eid != WEATHER_EVENT_ID:
+            return ui.div()
+
+        title = ui.div(
+            "Vremenski kontekst — julij 2022",
+            class_="aw-card-title",
+        )
+
+        if not _WEATHER_AVAILABLE:
+            return ui.div(
+                title,
+                ui.div(
+                    "Vremenski podatki niso naloženi.",
+                    class_="aw-weather-missing",
+                ),
+                class_="aw-card aw-card-weather",
+            )
+
+        region_code = input.region_code() if "region_code" in input else ""
+        agg = aggregate_weather(region_code or None)
+        scope = agg.get("scope_label", "Slovenija")
+        n_muni = int(agg.get("municipality_count") or 0)
+
+        def _fmt(value, unit, decimals=1, signed=False):
+            if value is None or (isinstance(value, float) and pd.isna(value)):
+                return ui.span("—", class_="value")
+            fmt = f"{{:+.{decimals}f}}" if signed else f"{{:.{decimals}f}}"
+            return ui.tags.span(
+                fmt.format(float(value)),
+                ui.span(unit, class_="unit"),
+                class_="value",
+            )
+
+        wd = agg.get("wind_direction_dominant")
+        wd_label = _degrees_to_compass(wd)
+        wd_text = (
+            f"{wd_label} ({wd:.0f}°)"
+            if wd is not None and not (isinstance(wd, float) and pd.isna(wd))
+            else "—"
+        )
+
+        cells = ui.div(
+            ui.div(
+                ui.div("Povprečna temp.", class_="aw-tel-label"),
+                _fmt(agg.get("temperature_avg"), " °C", 1),
+                class_="aw-tel-cell",
+            ),
+            ui.div(
+                ui.div("Skupne padavine", class_="aw-tel-label"),
+                _fmt(agg.get("precipitation_total_avg"), " mm", 1),
+                class_="aw-tel-cell",
+            ),
+            ui.div(
+                ui.div("Povp. hitrost vetra", class_="aw-tel-label"),
+                _fmt(agg.get("wind_speed_avg"), " km/h", 1),
+                class_="aw-tel-cell",
+            ),
+            ui.div(
+                ui.div("Najv. sunek vetra", class_="aw-tel-label"),
+                _fmt(agg.get("wind_gust_max"), " km/h", 1),
+                class_="aw-tel-cell aw-tel-warn",
+            ),
+            ui.div(
+                ui.div("Prevladujoča smer vetra", class_="aw-tel-label"),
+                ui.tags.span(wd_text, class_="value"),
+                class_="aw-tel-cell",
+            ),
+            ui.div(
+                ui.div("Povp. vlažnost", class_="aw-tel-label"),
+                _fmt(agg.get("humidity_avg"), " %", 0),
+                class_="aw-tel-cell",
+            ),
+            class_="aw-weather-grid",
+        )
+
+        scope_line = (
+            f"Območje: {scope} ({n_muni} občin)" if n_muni
+            else f"Območje: {scope}"
+        )
+        return ui.div(
+            title,
+            ui.div(scope_line, class_="aw-weather-scope"),
+            cells,
+            ui.div(
+                "Reanalizne vrednosti za centroide občin, ne uradne meritve "
+                "občinskih postaj. Vir: Open-Meteo Historical Weather API.",
+                class_="aw-weather-note",
+            ),
+            class_="aw-card aw-card-weather",
         )
 
     # -------- TREND CHART --------------------------------------------------

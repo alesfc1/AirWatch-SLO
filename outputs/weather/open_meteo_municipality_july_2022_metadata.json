@@ -1,0 +1,33 @@
+{
+  "source": "Open-Meteo Historical Weather API",
+  "api_name": "Open-Meteo Historical Weather (archive-api.open-meteo.com)",
+  "date_from": "2022-07-01",
+  "date_to": "2022-07-31",
+  "timezone": "Europe/Ljubljana",
+  "municipality_count": 212,
+  "municipality_failures": 0,
+  "generated_at": "2026-05-16T10:09:22.380341+00:00",
+  "variables": {
+    "daily": [
+      "temperature_2m_mean",
+      "precipitation_sum",
+      "wind_speed_10m_max",
+      "wind_gusts_10m_max",
+      "wind_direction_10m_dominant"
+    ],
+    "hourly_for_daily_mean": [
+      "wind_speed_10m",
+      "relative_humidity_2m",
+      "cloud_cover"
+    ],
+    "derived_from_hourly": [
+      "wind_speed_10m_mean (mean of hourly wind_speed_10m)",
+      "relative_humidity_2m_mean (mean of hourly relative_humidity_2m)",
+      "cloud_cover_mean (mean of hourly cloud_cover)"
+    ]
+  },
+  "input_geojson": "reference_data/context_layers/eprostor_municipalities.geojson",
+  "output_csv": "outputs/weather/open_meteo_municipality_july_2022.csv",
+  "errors_csv": null,
+  "note": "Weather values are retrieved for municipality centroids and represent reanalysis/modelled weather context, not official municipal station measurements."
+}
