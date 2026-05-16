@@ -426,6 +426,67 @@
     });
   }
 
+  // ---- 5d. precise placement of the "Dan dogodka" marker ----------------
+  // The server emits the marker with an approximate `left:` and a
+  // data-frac attribute (= (event_day_index - 1) / (max_day - 1)). The
+  // CSS approximation can drift a few percent off the handle's actual
+  // center because ionRangeSlider's handle moves over (slider_width -
+  // handle_width), not the full track. We read the real geometry of
+  // .irs-line + .irs-handle once the slider has mounted and pin the
+  // marker exactly under the handle position that corresponds to the
+  // event's day_index.
+  function positionEventMarker(marker) {
+    if (!marker) return;
+    var stage = marker.closest && marker.closest(".aw-slider-stage");
+    if (!stage) return;
+    var line = stage.querySelector(".irs-line");
+    if (!line) return;
+    var fracAttr = marker.getAttribute("data-frac");
+    var frac = parseFloat(fracAttr);
+    if (isNaN(frac)) return;
+    frac = Math.max(0, Math.min(1, frac));
+    var handleEl =
+      stage.querySelector(".irs-handle.from") ||
+      stage.querySelector(".irs-handle.single") ||
+      stage.querySelector(".irs-handle");
+    var handleW = handleEl ? handleEl.getBoundingClientRect().width : 18;
+    if (!handleW || handleW < 4) handleW = 18;
+    var lineRect = line.getBoundingClientRect();
+    var stageRect = stage.getBoundingClientRect();
+    if (!lineRect.width) return;
+    var lineLeftInStage = lineRect.left - stageRect.left;
+    var centerX =
+      lineLeftInStage + handleW / 2 + (lineRect.width - handleW) * frac;
+    marker.style.left = centerX + "px";
+  }
+
+  function positionAllEventMarkers() {
+    document.querySelectorAll(".aw-event-marker[data-frac]").forEach(
+      positionEventMarker
+    );
+  }
+
+  function bindEventMarkerPlacement() {
+    // Re-place on resize (slider width changes with the layout).
+    window.addEventListener("resize", positionAllEventMarkers);
+
+    // Re-place when Shiny swaps the marker (event change) or the slider
+    // rebuilds (max_day change). A MutationObserver scoped to slider
+    // stages catches both without per-message wiring.
+    var mo = new MutationObserver(function () {
+      positionAllEventMarkers();
+    });
+    mo.observe(document.body, { subtree: true, childList: true });
+
+    // Initial paint — the slider needs a tick to mount; retry briefly.
+    var attempts = 0;
+    var t = setInterval(function () {
+      attempts += 1;
+      positionAllEventMarkers();
+      if (attempts > 20) clearInterval(t);
+    }, 120);
+  }
+
   // ---- Mirror the scope radio into <body data-scope> so CSS can switch
   // visibility of Regije-only vs Občine-only DOM pieces.
   function applyScope(value) {
@@ -457,6 +518,7 @@
     bindAutoPlayOnEventChange();
     bindMapRestyle();
     bindTrendDayMarker();
+    bindEventMarkerPlacement();
     bindScopeMirror();
     autoStartOnFirstLoad();
   }

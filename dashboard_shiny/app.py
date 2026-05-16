@@ -609,12 +609,17 @@ _EVENTS_LIST = _resolve_events_list()
 
 
 def _compute_event_window(event: dict, max_day: int) -> dict | None:
-    """Return {start_pct, label} for the timeline event-start marker.
+    """Return {start_pct, frac, day_index, max_day, label} for the marker.
 
     Marks the slider precisely at ``event_start``. For multi-day events the
     label says "Začetek dogodka" plus the date; for single-day events it
     says "Dan dogodka". No width is returned — the UI draws a thin vertical
     line at ``start_pct``, not a band.
+
+    ``day_index`` is computed off the event's ``analysis_start`` (the day
+    that maps to day_index=1 in the data pipeline) rather than the calendar
+    ``.day``, so the marker lines up even when the analysis window does not
+    begin on the first of the month.
     """
     if not event or max_day <= 1:
         return None
@@ -622,16 +627,31 @@ def _compute_event_window(event: dict, max_day: int) -> dict | None:
     ee_raw = event.get("event_end")
     if not es_raw:
         return None
+    base_raw = (
+        event.get("analysis_start")
+        or event.get("start_date")
+        or event.get("date_from")
+    )
     try:
-        es_day = pd.to_datetime(es_raw).day
+        es_dt = pd.to_datetime(es_raw)
+        if base_raw:
+            base_dt = pd.to_datetime(base_raw)
+            day_index = int((es_dt.normalize() - base_dt.normalize()).days) + 1
+        else:
+            day_index = int(es_dt.day)
     except (ValueError, TypeError):
         return None
+    day_index = max(1, min(max_day, day_index))
     denom = max(max_day - 1, 1)
-    start_pct = max(0.0, min(100.0, (es_day - 1) / denom * 100.0))
+    frac = (day_index - 1) / denom
+    start_pct = max(0.0, min(100.0, frac * 100.0))
     single_day = bool(ee_raw) and es_raw == ee_raw
     short_label = "Dan dogodka" if single_day else "Začetek dogodka"
     return {
         "start_pct": start_pct,
+        "frac": frac,
+        "day_index": day_index,
+        "max_day": max_day,
         "label": short_label,
         "event_start": es_raw,
     }
@@ -2229,76 +2249,8 @@ app_ui = ui.page_fluid(
                 ui.output_ui("impact_panel"),
                 class_="aw-panel",
             ),
-            ui.div(
-                ui.div(
-                    ui.div("Prostorska interpretacija", class_="aw-sec-title"),
-                    ui.div(
-                        "Kaj je v prostoru okoli dogodka — pomaga razumeti "
-                        "satelitski signal v kontekstu.",
-                        class_="aw-sec-sub",
-                    ),
-                    class_="aw-sec-head",
-                ),
-                ui.output_ui("spatial_panel"),
-                class_="aw-panel",
-            ),
             class_="aw-method-grid",
             id="aw-impact",
-        ),
-
-        # ===== 4. METHODOLOGY + EVENT META ================================
-        ui.div(
-            ui.div(
-                ui.div(
-                    ui.div("Kaj prikazuje ta nadzorna plošča",
-                           class_="aw-sec-title"),
-                    ui.div(
-                        "Preberi pred razlago — pomaga razumeti, kaj številke "
-                        "pomenijo in kaj ne.",
-                        class_="aw-sec-sub",
-                    ),
-                    class_="aw-sec-head",
-                ),
-                ui.output_ui("methodology_block"),
-                class_="aw-panel",
-            ),
-            ui.div(
-                ui.div(
-                    ui.div("Metapodatki misije", class_="aw-sec-title"),
-                    ui.div(
-                        ui.output_text("pollutant_subtitle", inline=True),
-                        class_="aw-sec-sub",
-                    ),
-                    class_="aw-sec-head",
-                ),
-                ui.output_ui("event_metadata_summary"),
-                class_="aw-panel",
-            ),
-            class_="aw-method-grid",
-            id="aw-method",
-        ),
-
-        # ===== 5. STATUS FOOTER (plain-language mission log) ==============
-        ui.div(
-            ui.span("›", class_="icon"),
-            ui.output_ui("mission_log", inline=True),
-            class_="aw-status",
-        ),
-
-        # ===== APP FOOTER =================================================
-        ui.div(
-            ui.span(
-                "AirWatch SLO © ",
-                ui.output_ui("footer_year", inline=True),
-            ),
-            ui.span("·", class_="aw-footer-sep"),
-            ui.span("Sentinel-5P · ESA Copernicus"),
-            ui.span("·", class_="aw-footer-sep"),
-            ui.span(
-                "Univerza v Ljubljani — Fakulteta za računalništvo "
-                "in informatiko"
-            ),
-            class_="aw-footer",
         ),
 
         class_="aw-app",
@@ -2922,26 +2874,6 @@ def server(input, output, session):
             class_="aw-badge sample",
         )
 
-    # -------- HEADER + STATUS derived UI ----------------------------------
-
-    @output
-    @render.ui
-    def footer_year():
-        from datetime import datetime as _dt
-        return ui.HTML(str(_dt.now().year))
-
-    # -------- POLLUTANT SUBTITLE ------------------------------------------
-
-    @output
-    @render.text
-    def pollutant_subtitle():
-        spec = pollutant_spec()
-        entry = event_cache_entry()
-        n_available = len(entry.get("pollutants") or [])
-        more = (f"Za ta primer je na voljo {n_available} onesnaževalcev "
-                "(spodaj jih lahko preklopiš).")
-        return f"{spec.get('relevance_slo', '')} {more}"
-
     # -------- TIMELINE -----------------------------------------------------
 
     @output
@@ -2982,11 +2914,19 @@ def server(input, output, session):
     @output
     @render.ui
     def event_window_overlay():
-        """Thin vertical marker on the slider at the exact event-start day."""
+        """Thin vertical marker on the slider at the exact event-start day.
+
+        The inline ``left`` is a coarse fallback used before app.js measures
+        the actual ionRangeSlider geometry. ``data-frac`` carries the
+        precise (val - min) / (max - min) ratio; the client repositions the
+        marker over ``.irs-line`` so it sits exactly under the handle that
+        would correspond to ``day_index``.
+        """
         ew = event_cache_entry().get("event_window")
         if not ew:
             return ui.div()
         date_label = _slovene_date(ew.get("event_start", ""))
+        frac = float(ew.get("frac", ew["start_pct"] / 100.0))
         return ui.div(
             ui.div(
                 ui.div(ew["label"], class_="aw-event-marker-title"),
@@ -2994,10 +2934,10 @@ def server(input, output, session):
                 class_="aw-event-marker-pill",
             ),
             class_="aw-event-marker",
-            style=(
-                # 0.985 + 0.8% offset compensates for ionRangeSlider handle padding
-                f"left: calc({ew['start_pct']:.2f}% * 0.985 + 0.8%);"
-            ),
+            data_frac=f"{frac:.6f}",
+            data_day_index=str(int(ew.get("day_index", 1))),
+            data_max_day=str(int(ew.get("max_day", 1))),
+            style=f"left: {ew['start_pct']:.2f}%;",
         )
 
     # -------- MAP ----------------------------------------------------------
@@ -4227,250 +4167,6 @@ def server(input, output, session):
             deltas,
             _note(),
             class_="aw-impact",
-        )
-
-    # -------- SPATIAL INTERPRETATION PANEL --------------------------------
-
-    @output
-    @render.ui
-    def spatial_panel():
-        ev = selected_event()
-        if not ev:
-            return ui.div(
-                ui.div(
-                    "Izberi primer zgoraj, da prikažeš prostorsko "
-                    "interpretacijo.",
-                    class_="aw-spatial-msg",
-                ),
-                class_="aw-spatial",
-            )
-
-        eid = str(ev.get("event_id") or "")
-        copy = _event_copy(ev)
-        narrative = SPATIAL_INTERPRETATION_SLO.get(eid)
-
-        # Header line
-        loc_name = ev.get("event_location_name") or "—"
-        header = ui.div(
-            ui.div(
-                ui.span("PRIMER", class_="aw-spatial-k"),
-                ui.span(copy["title"], class_="aw-spatial-v"),
-                class_="aw-spatial-row",
-            ),
-            ui.div(
-                ui.span("LOKACIJA", class_="aw-spatial-k"),
-                ui.span(loc_name, class_="aw-spatial-v"),
-                class_="aw-spatial-row",
-            ),
-            class_="aw-spatial-header",
-        )
-
-        if not narrative:
-            return ui.div(
-                header,
-                ui.div(
-                    "Za ta primer nimamo zapisane prostorske interpretacije.",
-                    class_="aw-spatial-msg",
-                ),
-                class_="aw-spatial",
-            )
-
-        headline = ui.div(narrative["headline"], class_="aw-spatial-headline")
-        paragraphs = ui.div(
-            *[ui.tags.p(p, class_="aw-spatial-paragraph")
-              for p in narrative.get("paragraphs", [])],
-            class_="aw-spatial-body",
-        )
-
-        # Layers list — use availability flags computed at import.
-        layer_rows: list[ui.Tag] = []
-        for key in narrative.get("relevant_layers", []):
-            meta = CONTEXT_LAYER_META.get(key)
-            if not meta:
-                continue
-            available = _CONTEXT_LAYER_AVAILABLE.get(key, False)
-            status_label = (
-                _resolved_layer_source(key) if available else "Sloj ni naložen"
-            )
-            status_cls = (
-                "aw-spatial-layer-status"
-                if available
-                else "aw-spatial-layer-status missing"
-            )
-            row_cls = (
-                "aw-spatial-layer"
-                if available
-                else "aw-spatial-layer disabled"
-            )
-            layer_rows.append(ui.div(
-                ui.span(meta["label"], class_="aw-spatial-layer-label"),
-                ui.span(status_label, class_=status_cls),
-                class_=row_cls,
-            ))
-
-        layers_block = (
-            ui.div(
-                ui.div("Razpoložljivi prostorski sloji",
-                       class_="aw-spatial-layers-title"),
-                ui.div(*layer_rows, class_="aw-spatial-layers-list"),
-                class_="aw-spatial-layers",
-            )
-            if layer_rows
-            else ui.div()
-        )
-
-        return ui.div(
-            header,
-            headline,
-            paragraphs,
-            layers_block,
-            ui.div(ASSOCIATION_NOTE_SLO, class_="aw-spatial-note"),
-            class_="aw-spatial",
-        )
-
-    # -------- METHODOLOGY + EVENT META -------------------------------------
-
-    @output
-    @render.ui
-    def methodology_block():
-        items = [
-            (
-                "Kaj merimo",
-                "Satelit Sentinel-5P meri količino dušikovega dioksida (NO₂) "
-                "v stolpcu zraka nad Slovenijo. To ni meritev neposredno pri "
-                "tleh, ampak v celotnem ozračju.",
-            ),
-            (
-                "Kaj pomeni višja vrednost",
-                "Običajno onesnaženje iz prometa, požarov ali industrije. "
-                "Visoka številka ni sama po sebi dokaz vzroka — lahko jo "
-                "razloži tudi vreme ali običajno ozadje.",
-            ),
-            (
-                "Kdaj manjkajo podatki",
-                "Kadar so oblaki pregosti ali satelit ni opravil zanesljive "
-                "meritve. Prostorska ločljivost je približno 5,5 × 3,5 km.",
-            ),
-            (
-                "Kako preveriti zaznavo",
-                "Za potrditev so potrebne meritve na tleh (ARSO) in "
-                "vremenski podatki.",
-            ),
-            (
-                "Prostorski kontekst (GeoSlovenija / eProstor)",
-                "Prostorski sloji dodajo kontekst urbanega, prometnega, "
-                "industrijskega ali poseljenega prostora. Ne dokazujejo "
-                "vzročnosti, ampak pomagajo interpretirati satelitski signal. "
-                "Viri: eProstor (občine, prometna infrastruktura) in "
-                "GeoSlovenija geo-peskovnik (industrijska in poslovna območja).",
-            ),
-        ]
-        return ui.div(
-            *[
-                ui.div(
-                    ui.span(f"{i + 1}", class_="icon"),
-                    ui.div(
-                        ui.div(head, class_="head"),
-                        ui.div(desc, class_="desc"),
-                        class_="body",
-                    ),
-                    class_="aw-method-item",
-                )
-                for i, (head, desc) in enumerate(items)
-            ],
-            class_="aw-method-list",
-        )
-
-    @output
-    @render.ui
-    def event_metadata_summary():
-        ev = selected_event()
-        meta = metadata() or {}
-        if not ev and not meta:
-            return ui.div()
-        rows: list[ui.Tag] = []
-        if ev:
-            rows.append(ui.div(
-                ui.span("Primer", class_="k"),
-                ui.span(_event_copy(ev)["title"], class_="v"),
-                class_="row",
-            ))
-            rows.append(ui.div(
-                ui.span("Lokacija", class_="k"),
-                ui.span(ev.get("event_location_name", "—"), class_="v"),
-                class_="row",
-            ))
-            rows.append(ui.div(
-                ui.span("Mesec analize", class_="k"),
-                ui.span(_slovene_month_label(ev), class_="v"),
-                class_="row",
-            ))
-            rows.append(ui.div(
-                ui.span("Obdobje dogodka", class_="k"),
-                ui.span(_slovene_window(ev) or "—", class_="v"),
-                class_="row",
-            ))
-        rows.append(ui.div(
-            ui.span("Vir podatkov", class_="k"),
-            ui.span(meta.get("source",
-                             "Sentinel Hub Statistical API / Sentinel-5P"),
-                    class_="v"),
-            class_="row",
-        ))
-        if meta.get("generated_at"):
-            rows.append(ui.div(
-                ui.span("Zadnja osvežitev", class_="k"),
-                ui.span(meta["generated_at"], class_="v"),
-                class_="row",
-            ))
-        return ui.div(*rows, class_="aw-event-summary")
-
-    # -------- STATUS FOOTER (plain-language summary line) -----------------
-
-    @output
-    @render.ui
-    def mission_log():
-        df_disp = day_df_display().dropna(subset=["value_display"])
-        ev = selected_event()
-        day = input.day_index() or 1
-        total = max_day_index()
-        date_str = current_date_str()
-        slo_date = _slovene_date(date_str) if date_str else "—"
-        status_label, _ = _classify_day_status(ev, date_str)
-        copy = _event_copy(ev) if ev else {"title": "—"}
-
-        unit = current_unit()
-        p_short = pollutant_spec()["short"]
-        decimals = pollutant_spec().get("decimals", 1)
-
-        # Build a natural-language summary
-        if df_disp.empty:
-            return ui.tags.span(
-                "Prikazujem ", ui.tags.strong(slo_date), " — primer ",
-                ui.tags.strong(copy["title"]),
-                f". Za ta dan ni zanesljivih meritev za {p_short}.",
-            )
-
-        peak_row = df_disp.loc[df_disp["value_display"].idxmax()]
-        mode = input.display_mode() if "display_mode" in input else "absolute"
-        if mode == "anomaly":
-            peak_text = (
-                f"Največje odstopanje od povprečja: "
-                f"{float(peak_row['value_display']):+.{decimals}f} {unit} "
-                f"v regiji {peak_row['region_name']}."
-            )
-        else:
-            peak_text = (
-                f"Najvišja izmerjena vrednost {p_short}: "
-                f"{float(peak_row['value_display']):.{decimals}f} {unit} "
-                f"v regiji {peak_row['region_name']}."
-            )
-        status_suffix = f" ({status_label.lower()})" if status_label != "—" else ""
-        _ = (day, total)  # day/total prefix reserved for future
-        return ui.tags.span(
-            "Prikazujem ", ui.tags.strong(slo_date), " — primer ",
-            ui.tags.strong(copy["title"]),
-            status_suffix, ". ", peak_text,
         )
 
     # -------- STATUS BANNER -----------------------------------------------
