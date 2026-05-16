@@ -1922,6 +1922,14 @@ a:hover { color: #9af0ff; }
   font-size: 9.5px;
   letter-spacing: 0.06em;
   padding: 2px 9px;
+  color: #000000;
+}
+.aw-card-mode .aw-mode-toggle label:hover { color: #000000; }
+.aw-card-mode .aw-mode-toggle input[type="radio"]:checked + span {
+  color: #000000;
+}
+.aw-card-mode .aw-mode-toggle label:has(input:checked) {
+  color: #000000;
 }
 /* By default everything renders. JS adds data-scope on <body> to switch. */
 body[data-scope="obcine"] .aw-scope-regije-only { display: none !important; }

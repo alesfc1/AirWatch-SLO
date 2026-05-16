@@ -731,6 +731,9 @@ def _build_trend_figure_base(
 
     fig = go.Figure()
 
+    # Projector-friendly palette: deep saturated blue for the mean line +
+    # markers, strong fill alpha for the min–max band, fully saturated red
+    # for the event marker so it reads at the back of a lecture hall.
     fig.add_trace(go.Scatter(
         x=sub["date"], y=sub["band_high"],
         mode="lines", line=dict(width=0),
@@ -739,16 +742,16 @@ def _build_trend_figure_base(
     fig.add_trace(go.Scatter(
         x=sub["date"], y=sub["band_low"],
         mode="lines", line=dict(width=0),
-        fill="tonexty", fillcolor="rgba(14,155,209,0.12)",
+        fill="tonexty", fillcolor="rgba(10,108,184,0.28)",
         name="min–max", hoverinfo="skip", showlegend=False,
     ))
     fig.add_trace(go.Scatter(
         x=sub["date"], y=sub["plot_value"],
         mode="lines+markers",
-        line=dict(color="#0e9bd1", width=2.4,
+        line=dict(color="#0a4f8a", width=3.6,
                   shape="spline", smoothing=0.5),
-        marker=dict(size=5, color="#0e9bd1",
-                    line=dict(color="#ffffff", width=1)),
+        marker=dict(size=7, color="#0a4f8a",
+                    line=dict(color="#ffffff", width=1.5)),
         name="povprečje",
         hovertemplate=(
             "<b>%{x}</b><br>"
@@ -763,26 +766,26 @@ def _build_trend_figure_base(
             if es == ee:
                 fig.add_vline(
                     x=es,
-                    line=dict(color="#d65336", width=2),
+                    line=dict(color="#c8261a", width=3),
                 )
                 fig.add_annotation(
                     x=es, y=1, yref="paper", showarrow=False,
-                    text="DAN DOGODKA", yanchor="bottom",
+                    text="<b>DAN DOGODKA</b>", yanchor="bottom",
                     font=dict(family="JetBrains Mono, monospace",
-                              color="#d65336", size=10),
+                              color="#c8261a", size=12),
                 )
             else:
                 fig.add_vrect(
                     x0=es, x1=ee,
-                    fillcolor="rgba(217,102,55,0.14)",
+                    fillcolor="rgba(200,38,26,0.22)",
                     line=dict(width=0),
                 )
                 fig.add_annotation(
                     x=es, y=1, yref="paper", showarrow=False,
-                    text="OBDOBJE DOGODKA", yanchor="bottom",
+                    text="<b>OBDOBJE DOGODKA</b>", yanchor="bottom",
                     xanchor="left",
                     font=dict(family="JetBrains Mono, monospace",
-                              color="#d65336", size=10),
+                              color="#c8261a", size=12),
                 )
 
     # Count baseline shapes so the JS day-marker handler knows where to
@@ -795,31 +798,31 @@ def _build_trend_figure_base(
         title=dict(
             text=title.upper(),
             font=dict(family="JetBrains Mono, monospace",
-                      color="#46546f", size=11),
+                      color="#000000", size=12),
             x=0.01, y=0.97,
         ),
         xaxis=dict(
             title=None,
-            gridcolor="rgba(30,64,120,0.08)",
-            zerolinecolor="rgba(30,64,120,0.14)",
-            linecolor="rgba(30,64,120,0.20)",
+            gridcolor="rgba(0,0,0,0.18)",
+            zerolinecolor="rgba(0,0,0,0.30)",
+            linecolor="rgba(0,0,0,0.55)",
             tickfont=dict(family="DM Sans, system-ui, sans-serif",
-                          color="#46546f", size=11),
+                          color="#000000", size=12),
             showline=True,
             tickangle=-45,
         ),
         yaxis=dict(
             title=dict(text=y_title,
                        font=dict(family="DM Sans, system-ui, sans-serif",
-                                 color="#46546f", size=11)),
-            gridcolor="rgba(30,64,120,0.08)",
-            zerolinecolor="rgba(30,64,120,0.14)",
-            linecolor="rgba(14,155,209,0.30)",
+                                 color="#000000", size=12)),
+            gridcolor="rgba(0,0,0,0.18)",
+            zerolinecolor="rgba(0,0,0,0.30)",
+            linecolor="rgba(10,79,138,0.65)",
             tickfont=dict(family="JetBrains Mono, monospace",
-                          color="#46546f", size=10),
+                          color="#000000", size=11),
             showline=True,
         ),
-        font=dict(family="DM Sans, system-ui, sans-serif", color="#1f2a3e"),
+        font=dict(family="DM Sans, system-ui, sans-serif", color="#000000"),
         height=300,
         margin=dict(l=60, r=20, t=46, b=60),
         hoverlabel=dict(
@@ -1774,25 +1777,21 @@ def _ctx_layer_row(input_id: str, layer_key: str) -> ui.Tag:
         checkbox = ui.input_checkbox(
             input_id, meta["label"], value=False,
         )
-        source = ui.span(
-            _resolved_layer_source(layer_key),
-            class_="aw-ctx-source",
-        )
-    else:
-        # Disabled stub: a non-interactive checkbox-like placeholder.
-        checkbox = ui.tags.label(
-            ui.tags.input(
-                type="checkbox", disabled="disabled",
-                class_="aw-ctx-disabled-input",
-            ),
-            ui.span(meta["label"], class_="aw-ctx-disabled-label"),
-            class_="aw-ctx-disabled-row",
-        )
-        source = ui.span(
-            "Sloj ni naložen",
-            class_="aw-ctx-source aw-ctx-source-missing",
-        )
+        return ui.div(checkbox, class_=row_cls)
 
+    # Disabled stub: a non-interactive checkbox-like placeholder.
+    checkbox = ui.tags.label(
+        ui.tags.input(
+            type="checkbox", disabled="disabled",
+            class_="aw-ctx-disabled-input",
+        ),
+        ui.span(meta["label"], class_="aw-ctx-disabled-label"),
+        class_="aw-ctx-disabled-row",
+    )
+    source = ui.span(
+        "Sloj ni naložen",
+        class_="aw-ctx-source aw-ctx-source-missing",
+    )
     return ui.div(checkbox, source, class_=row_cls)
 
 
@@ -1809,20 +1808,20 @@ def _ctx_weather_row() -> ui.Tag:
     )
     if _WEATHER_AVAILABLE:
         checkbox = ui.input_checkbox("ctx_weather", label, value=False)
-        source = ui.span("Open-Meteo (julij 2022)", class_="aw-ctx-source")
-    else:
-        checkbox = ui.tags.label(
-            ui.tags.input(
-                type="checkbox", disabled="disabled",
-                class_="aw-ctx-disabled-input",
-            ),
-            ui.span(label, class_="aw-ctx-disabled-label"),
-            class_="aw-ctx-disabled-row",
-        )
-        source = ui.span(
-            "Sloj ni naložen",
-            class_="aw-ctx-source aw-ctx-source-missing",
-        )
+        return ui.div(checkbox, class_=row_cls)
+
+    checkbox = ui.tags.label(
+        ui.tags.input(
+            type="checkbox", disabled="disabled",
+            class_="aw-ctx-disabled-input",
+        ),
+        ui.span(label, class_="aw-ctx-disabled-label"),
+        class_="aw-ctx-disabled-row",
+    )
+    source = ui.span(
+        "Sloj ni naložen",
+        class_="aw-ctx-source aw-ctx-source-missing",
+    )
     return ui.div(checkbox, source, class_=row_cls)
 
 
@@ -2021,38 +2020,6 @@ app_ui = ui.page_fluid(
                                 class_="aw-slider-stage aw-scope-regije-only",
                             ),
 
-                            # ----- municipalities: year-slider meta + slider -----
-                            ui.div(
-                                ui.div("Leto", class_="aw-tl-meta-label"),
-                                ui.div(
-                                    ui.output_text(
-                                        "muni_year_value", inline=True
-                                    ),
-                                    class_="aw-tl-meta-value",
-                                ),
-                                class_="aw-tl-meta aw-scope-obcine-only",
-                            ),
-                            ui.div(
-                                ui.div("Razpon", class_="aw-tl-meta-label"),
-                                ui.div(
-                                    f"{_MUNI_YEARS[0]} – {_MUNI_YEARS[-1]}",
-                                    class_="aw-tl-meta-value",
-                                ),
-                                class_="aw-tl-meta aw-scope-obcine-only",
-                            ),
-                            ui.div(
-                                ui.input_slider(
-                                    "muni_year",
-                                    None,
-                                    min=_MUNI_YEARS[0],
-                                    max=_MUNI_YEARS[-1],
-                                    value=_MUNI_DEFAULT_YEAR,
-                                    step=1,
-                                    sep="",
-                                    ticks=True,
-                                ),
-                                class_="aw-slider-stage aw-scope-obcine-only",
-                            ),
                             class_="aw-timeline-dock",
                             id="aw-timeline",
                         ),
@@ -2061,6 +2028,56 @@ app_ui = ui.page_fluid(
 
                     # ---- RIGHT COLUMN: side rail of cards --------------
                     ui.div(
+
+                        # Card: GeoSlovenija context layers
+                        ui.div(
+                            ui.div("GeoSlovenija konteksti", class_="aw-card-title"),
+                            ui.div(
+                                "Satelitski podatki pokažejo, kako se signal "
+                                "spreminja. Sloji eProstor in geo-peskovnik "
+                                "pokažejo, kaj je v prostoru okoli dogodka.",
+                                class_="aw-ctx-explain",
+                            ),
+                            ui.div(
+                                ui.div(
+                                    ui.input_checkbox(
+                                        "ctx_event",
+                                        "Lokacija dogodka",
+                                        value=True,
+                                    ),
+                                    class_="aw-ctx-row aw-ctx-row-event",
+                                ),
+                                _ctx_layer_row(
+                                    "ctx_municipalities", "municipalities",
+                                ),
+                                _ctx_layer_row(
+                                    "ctx_transport", "transport",
+                                ),
+                                _ctx_layer_row(
+                                    "ctx_industrial", "industrial",
+                                ),
+                                # Open-Meteo weather overlay (subtle secondary layer)
+                                # — markers at municipality centroids coloured by the
+                                # selected weather metric. Always disabled if the CSV
+                                # is missing on disk.
+                                _ctx_weather_row(),
+                                class_="aw-ctx-list",
+                            ),
+                            class_="aw-card",
+                        ),
+
+                        # Card: region selector + detail
+                        ui.div(
+                            ui.div("Izbrana regija", class_="aw-card-title"),
+                            ui.input_select(
+                                "region_code",
+                                None,
+                                choices={"": "Vse regije (povprečje Slovenije)"},
+                                selected="",
+                            ),
+                            ui.output_ui("region_detail"),
+                            class_="aw-card aw-card-region",
+                        ),
 
                         # Card: scope + display mode toggle
                         ui.div(
@@ -2117,91 +2134,11 @@ app_ui = ui.page_fluid(
                             class_="aw-card",
                         ),
 
-                        # Card: region selector + detail
-                        ui.div(
-                            ui.div("Izbrana regija", class_="aw-card-title"),
-                            ui.input_select(
-                                "region_code",
-                                None,
-                                choices={"": "Vse regije (povprečje Slovenije)"},
-                                selected="",
-                            ),
-                            ui.output_ui("region_detail"),
-                            class_="aw-card aw-card-region",
-                        ),
-
                         # Card: Open-Meteo weather context (Kras wildfire, July 2022).
                         # Server-rendered as either the full panel or a "not loaded"
                         # stub. Always rendered into the DOM; the renderer returns an
                         # empty div for non-Kras events so other events stay clean.
                         ui.output_ui("weather_panel"),
-
-                        # Card: GeoSlovenija context layers
-                        ui.div(
-                            ui.div("GeoSlovenija konteksti", class_="aw-card-title"),
-                            ui.div(
-                                "Satelitski podatki pokažejo, kako se signal "
-                                "spreminja. Sloji eProstor in geo-peskovnik "
-                                "pokažejo, kaj je v prostoru okoli dogodka.",
-                                class_="aw-ctx-explain",
-                            ),
-                            ui.div(
-                                ui.div(
-                                    ui.input_checkbox(
-                                        "ctx_event",
-                                        "Lokacija dogodka",
-                                        value=True,
-                                    ),
-                                    ui.span(
-                                        "iz metapodatkov",
-                                        class_="aw-ctx-source",
-                                    ),
-                                    class_="aw-ctx-row aw-ctx-row-event",
-                                ),
-                                _ctx_layer_row(
-                                    "ctx_municipalities", "municipalities",
-                                ),
-                                _ctx_layer_row(
-                                    "ctx_transport", "transport",
-                                ),
-                                _ctx_layer_row(
-                                    "ctx_industrial", "industrial",
-                                ),
-                                # Open-Meteo weather overlay (subtle secondary layer)
-                                # — markers at municipality centroids coloured by the
-                                # selected weather metric. Always disabled if the CSV
-                                # is missing on disk.
-                                _ctx_weather_row(),
-                                class_="aw-ctx-list",
-                            ),
-                            # Weather metric selector — collapsed to a single-line
-                            # radio row, only meaningful when the toggle above is on.
-                            ui.div(
-                                ui.div(
-                                    "Vremenska metrika",
-                                    class_="aw-ctx-weather-label",
-                                ),
-                                ui.input_radio_buttons(
-                                    "ctx_weather_metric",
-                                    None,
-                                    choices={
-                                        k: ui.tags.span(
-                                            v["short"],
-                                            class_="poll-short",
-                                        )
-                                        for k, v in WEATHER_METRICS.items()
-                                    },
-                                    selected="temperature",
-                                    inline=True,
-                                ),
-                                class_=(
-                                    "aw-ctx-weather-metric"
-                                    if _WEATHER_AVAILABLE
-                                    else "aw-ctx-weather-metric aw-ctx-weather-metric-disabled"
-                                ),
-                            ),
-                            class_="aw-card",
-                        ),
 
                         class_="aw-side-rail",
                         id="aw-side-rail",
@@ -3008,13 +2945,6 @@ def server(input, output, session):
         if muni_uses_aq():
             return "Obdobje: julij 2022"
         return f"Leto: {muni_year()}"
-
-    @output
-    @render.text
-    def muni_year_value():
-        if muni_uses_aq():
-            return "julij 2022"
-        return str(muni_year())
 
     @output
     @render.text
@@ -3997,16 +3927,12 @@ def server(input, output, session):
         p_short = spec.get("short", "NO₂")
         decimals = int(spec.get("decimals", 1))
 
-        def _note() -> ui.Tag:
-            return ui.div(ASSOCIATION_NOTE_SLO, class_="aw-impact-note")
-
         if not ev:
             return ui.div(
                 ui.div(
                     "Izberi primer zgoraj, da prikažeš primerjavo pred / med / po dogodku.",
                     class_="aw-impact-msg",
                 ),
-                _note(),
                 class_="aw-impact",
             )
 
@@ -4049,7 +3975,6 @@ def server(input, output, session):
                     "primerjava pred / med / po ni mogoča.",
                     class_="aw-impact-msg",
                 ),
-                _note(),
                 class_="aw-impact",
             )
 
@@ -4061,7 +3986,6 @@ def server(input, output, session):
                     "zato primerjava pred/med/po ni uporabljena.",
                     class_="aw-impact-msg aw-impact-msg-info",
                 ),
-                _note(),
                 class_="aw-impact",
             )
 
@@ -4073,7 +3997,6 @@ def server(input, output, session):
                     "razpoložljivih meritev v obdobju primera.",
                     class_="aw-impact-msg",
                 ),
-                _note(),
                 class_="aw-impact",
             )
 
@@ -4098,7 +4021,6 @@ def server(input, output, session):
 
         n_b = impact.get("n_before", 0)
         n_d = impact.get("n_during", 0)
-        n_a = impact.get("n_after", 0)
 
         cells = ui.div(
             ui.div(
@@ -4114,13 +4036,6 @@ def server(input, output, session):
                        class_="aw-impact-cell-value"),
                 ui.div(f"{n_d} dnevnih meritev", class_="aw-impact-cell-sub"),
                 class_="aw-impact-cell aw-impact-cell-during",
-            ),
-            ui.div(
-                ui.div("Po dogodku", class_="aw-impact-cell-label"),
-                ui.div(_fmt_val(impact.get("mean_after")),
-                       class_="aw-impact-cell-value"),
-                ui.div(f"{n_a} dnevnih meritev", class_="aw-impact-cell-sub"),
-                class_="aw-impact-cell",
             ),
             class_="aw-impact-grid",
         )
@@ -4141,23 +4056,6 @@ def server(input, output, session):
                 _fmt_pct(impact.get("change_during_vs_before_pct")),
                 class_="aw-impact-delta-row",
             ))
-            if impact.get("mean_after") is None:
-                deltas_rows.append(ui.div(
-                    ui.span("Sprememba po vs. pred",
-                            class_="aw-impact-delta-k"),
-                    ui.span(
-                        "Po dogodku ni razpoložljivih meritev — primerjava ni mogoča.",
-                        class_="aw-impact-delta-msg",
-                    ),
-                    class_="aw-impact-delta-row",
-                ))
-            else:
-                deltas_rows.append(ui.div(
-                    ui.span("Sprememba po vs. pred",
-                            class_="aw-impact-delta-k"),
-                    _fmt_pct(impact.get("change_after_vs_before_pct")),
-                    class_="aw-impact-delta-row",
-                ))
 
         deltas = ui.div(*deltas_rows, class_="aw-impact-deltas")
 
@@ -4165,7 +4063,6 @@ def server(input, output, session):
             header,
             cells,
             deltas,
-            _note(),
             class_="aw-impact",
         )
 
