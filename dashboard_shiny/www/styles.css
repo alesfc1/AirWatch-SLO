@@ -559,6 +559,67 @@ a:hover { color: #9af0ff; }
 .aw-map-canvas .plot-container {
   width: 100% !important; height: 100% !important;
 }
+
+/* Floating overlays anchored to the map corners — dark glass to match
+   .aw-map-head so the cards read on top of the dark basemap. */
+.aw-map-overlay {
+  position: absolute;
+  z-index: 3;
+  background: rgba(14,19,28,0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.32);
+  padding: 10px 12px 12px;
+  color: #e8edf5;
+}
+.aw-map-overlay-tr {
+  top: 14px; right: 16px;
+  width: 240px;
+}
+.aw-map-overlay-bl {
+  bottom: 14px; left: 16px;
+  min-width: 160px;
+}
+.aw-map-overlay-title {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 12.5px;
+  color: #e8edf5;
+  letter-spacing: -0.005em;
+  margin-bottom: 8px;
+}
+.aw-map-overlay-eyebrow {
+  font-family: var(--body);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(232,237,245,0.62);
+  margin-bottom: 4px;
+}
+.aw-map-overlay-sublabel {
+  font-family: var(--body);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(232,237,245,0.62);
+  margin: 8px 0 4px;
+}
+.aw-map-overlay .aw-mode-toggle label {
+  color: rgba(232,237,245,0.78);
+}
+.aw-map-overlay .aw-mode-toggle label:hover { color: #ffffff; }
+.aw-map-overlay .aw-mode-toggle input[type="radio"]:checked + span {
+  color: #ffffff;
+}
+.aw-map-overlay .aw-mode-toggle label:has(input:checked) {
+  color: #ffffff;
+}
+.aw-map-overlay-avg {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
 #map_plot { position: absolute; inset: 0; z-index: 1; }
 
 /* Floating bottom-right map legend (colour ramp + quality pips). */
@@ -1824,6 +1885,43 @@ a:hover { color: #9af0ff; }
   font-size: 11px;
   color: var(--t4);
   margin-bottom: 3px;
+}
+
+/* Compact, quieter rendering for the mode card in the side rail.
+   Slim padding, eyebrow-style title, tighter pill toggles. */
+.aw-card-mode {
+  padding: 8px 10px;
+  background: transparent;
+  border-color: rgba(30,64,120,0.10);
+  box-shadow: none;
+}
+.aw-card-mode .aw-card-title {
+  font-family: var(--body);
+  font-weight: 600;
+  font-size: 9.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--t4);
+  margin-bottom: 6px;
+}
+.aw-card-mode .aw-card-sublabel {
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t5);
+  margin-bottom: 2px;
+}
+.aw-card-mode .aw-scope-toggle { margin-bottom: 2px; }
+.aw-card-mode .aw-display-mode-wrap { margin-top: 2px; }
+.aw-card-mode .aw-mode-toggle .shiny-options-group {
+  padding: 2px;
+  background: rgba(244,247,252,0.7);
+  border-color: rgba(30,64,120,0.10);
+}
+.aw-card-mode .aw-mode-toggle label {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  padding: 2px 9px;
 }
 /* By default everything renders. JS adds data-scope on <body> to switch. */
 body[data-scope="obcine"] .aw-scope-regije-only { display: none !important; }
